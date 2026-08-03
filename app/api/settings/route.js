@@ -5,9 +5,9 @@ export const dynamic = "force-dynamic";
 
 const DEFAULTS = {
   weekday_req: { "Π4": 1, "Α3": 1, "Π": 3, "Α": 3 },
-  sunday_req: { "Π2": 1, "Π4": 1, "Α": 3, "Α2": 1 },
+  sunday_req: { "Π": 2, "Π2": 1, "Π4": 1, "Α": 2, "Α2": 1 },
   work_days: 6,
-  max_per_shift: 5,
+  max_per_shift: 4,
 };
 
 export async function GET() {

@@ -101,7 +101,7 @@ export default function SettingsPage() {
               </select>
             </label>
             <label className="f">
-              Μέγιστα άτομα ανά βάρδια
+              Μέγιστα άτομα ταυτόχρονα στη βάρδια
               <input
                 type="number"
                 min={1}

@@ -16,7 +16,7 @@ create table if not exists employees (
 create table if not exists settings (
   id int primary key,
   weekday_req jsonb not null default '{"Π4":1,"Α3":1,"Π":3,"Α":3}',
-  sunday_req jsonb not null default '{"Π2":1,"Π4":1,"Α":3,"Α2":1}',
+  sunday_req jsonb not null default '{"Π":2,"Π2":1,"Π4":1,"Α":2,"Α2":1}',
   updated_at timestamptz not null default now()
 );
 insert into settings (id) values (1) on conflict (id) do nothing;
@@ -44,4 +44,4 @@ alter table fuel_entries enable row level security;
 
 -- Νέες στήλες ρυθμίσεων (ασφαλές να ξανατρέξει και σε υπάρχουσα βάση):
 alter table settings add column if not exists work_days int not null default 6;
-alter table settings add column if not exists max_per_shift int not null default 5;
+alter table settings add column if not exists max_per_shift int not null default 4;
