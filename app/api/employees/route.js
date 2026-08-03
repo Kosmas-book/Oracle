@@ -24,6 +24,16 @@ export async function POST(req) {
     allowed_shifts: Array.isArray(body.allowed_shifts) ? body.allowed_shifts : [],
     night_rotation: !!body.night_rotation,
     sort_order: Number(body.sort_order) || 100,
+    fixed_days: (() => {
+      const ok = ["Ρ", "Π", "Π2", "Π4", "Α", "Α2", "Α3", "Β", "Ο"];
+      const out = {};
+      const src = body.fixed_days && typeof body.fixed_days === "object" ? body.fixed_days : {};
+      for (const [d, c] of Object.entries(src)) {
+        const di = Number(d);
+        if (di >= 0 && di <= 6 && ok.includes(c)) out[di] = c;
+      }
+      return out;
+    })(),
   };
   if (!row.name)
     return NextResponse.json({ error: "Λείπει το όνομα." }, { status: 400 });
