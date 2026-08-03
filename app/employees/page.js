@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Nav from "@/lib/Nav";
-import { SHIFTS, PAINTABLE } from "@/lib/shifts";
+import { SHIFTS, PAINTABLE, DAY_NAMES } from "@/lib/shifts";
 
 const SHIFT_OPTIONS = PAINTABLE.filter((c) => c !== "Ρ" && c !== "Ο");
 
@@ -14,6 +14,7 @@ const EMPTY = {
   allowed_shifts: ["Π", "Π4", "Α", "Α3"],
   night_rotation: false,
   sort_order: 100,
+  fixed_days: {},
 };
 
 function EmployeeForm({ initial, onSaved, onCancel, onDeleted }) {
@@ -138,6 +139,31 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted }) {
         </select>
       </label>
       <label className="f">
+        Σταθερές μέρες (προαιρετικό)
+        <span className="shift-checks" style={{ gap: 6 }}>
+          {DAY_NAMES.map((dn, di) => (
+            <span key={di} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2, fontSize: 11 }}>
+              {dn}
+              <select
+                value={e.fixed_days?.[di] || ""}
+                onChange={(ev) => {
+                  const fd = { ...(e.fixed_days || {}) };
+                  if (ev.target.value) fd[di] = ev.target.value;
+                  else delete fd[di];
+                  setE({ ...e, fixed_days: fd });
+                }}
+                style={{ padding: "4px 6px", fontSize: 12 }}
+              >
+                <option value="">—</option>
+                {["Ρ", "Π", "Π2", "Π4", "Α", "Α2", "Α3", "Β"].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </span>
+          ))}
+        </span>
+      </label>
+      <label className="f">
         Σειρά
         <input
           type="number"
@@ -181,6 +207,30 @@ export default function EmployeesPage() {
       .then((r) => r.json())
       .then((d) => setList(d.employees || []));
   }, []);
+
+  async function move(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    const arr = [...list];
+    const [x] = arr.splice(i, 1);
+    arr.splice(j, 0, x);
+    const updates = [];
+    arr.forEach((e, idx) => {
+      const so = (idx + 1) * 10;
+      if (e.sort_order !== so) {
+        e.sort_order = so;
+        updates.push(e);
+      }
+    });
+    setList([...arr]);
+    for (const e of updates) {
+      await fetch("/api/employees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(e),
+      });
+    }
+  }
 
   function upsertLocal(emp) {
     setList((l) => {
@@ -234,6 +284,10 @@ export default function EmployeesPage() {
               />
             ) : (
               <div className="rowline" key={e.id}>
+                <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <button className="btn secondary" style={{ padding: "1px 9px", fontSize: 13 }} onClick={() => move(list.indexOf(e), -1)} title="Πάνω">▲</button>
+                  <button className="btn secondary" style={{ padding: "1px 9px", fontSize: 13 }} onClick={() => move(list.indexOf(e), 1)} title="Κάτω">▼</button>
+                </span>
                 <div style={{ minWidth: 200 }}>
                   <strong>{e.name}</strong>{" "}
                   {!e.active && (
@@ -246,6 +300,13 @@ export default function EmployeesPage() {
                       ? `Part-time ${e.min_days}–${e.max_days} μέρες`
                       : "Πλήρους απασχόλησης"}
                     {e.night_rotation ? " · εναλλαγή βραδινού" : ""}
+                    {e.fixed_days && Object.keys(e.fixed_days).length
+                      ? " · σταθερά: " +
+                        Object.entries(e.fixed_days)
+                          .sort((a, b) => Number(a[0]) - Number(b[0]))
+                          .map(([d, c]) => `${DAY_NAMES[Number(d)]} ${c}`)
+                          .join(", ")
+                      : ""}
                   </div>
                 </div>
                 <div className="shift-checks">
