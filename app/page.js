@@ -22,6 +22,7 @@ export default function SchedulePage() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [mobileDay, setMobileDay] = useState(() => (new Date().getDay() + 6) % 7);
 
   const days = useMemo(() => {
     const m = new Date(week + "T00:00:00");
@@ -277,7 +278,7 @@ export default function SchedulePage() {
           )}
         </div>
 
-        <div className="card gridwrap">
+        <div className="card gridwrap desktop-sched">
           <table className="sched">
             <thead>
               <tr>
@@ -334,6 +335,53 @@ export default function SchedulePage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="card mobile-sched">
+          <div className="day-tabs">
+            {days.map((d, i) => (
+              <button
+                key={i}
+                className={"day-tab" + (mobileDay === i ? " on" : "")}
+                onClick={() => setMobileDay(i)}
+              >
+                {DAY_NAMES[i]}
+                <span>{fmtShort(d)}</span>
+              </button>
+            ))}
+          </div>
+          {activeEmployees.map((e) => {
+            const code = (grid[e.id] || [])[mobileDay] || "";
+            const s = SHIFTS[code];
+            return (
+              <button
+                key={e.id}
+                className="mrow"
+                onClick={() => paint(e.id, mobileDay)}
+              >
+                <span className="mname">
+                  {e.name}
+                  {e.employment_type === "part" && (
+                    <small> (pt)</small>
+                  )}
+                </span>
+                <span
+                  className="mshift"
+                  style={
+                    s
+                      ? { background: s.bg, color: s.ink }
+                      : { border: "1px dashed var(--line)", color: "var(--muted)" }
+                  }
+                >
+                  {code || "—"}
+                  {s && s.hours ? <small>{s.hours}</small> : null}
+                </span>
+              </button>
+            );
+          })}
+          {activeEmployees.length === 0 && (
+            <p>Δεν υπάρχουν ενεργοί υπάλληλοι.</p>
+          )}
         </div>
       </div>
     </>
