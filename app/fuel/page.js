@@ -58,6 +58,7 @@ export default function FuelPage() {
   const [sheetRows, setSheetRows] = useState(null); // array of arrays
   const [mapping, setMapping] = useState({});
   const [importMsg, setImportMsg] = useState("");
+  const [weights, setWeights] = useState({}); // index ημέρας -> ποσοστό (0..1)
   const [importing, setImporting] = useState(false);
 
   function load() {
@@ -343,13 +344,138 @@ export default function FuelPage() {
                       </tr>
                     );
                   })}
+                  <tr>
+                    <td className="name" style={{ background: "#f0eee6" }}>
+                      <strong>Σύνολο ημέρας</strong>
+                    </td>
+                    {forecast.days.map((_, i) => {
+                      const t = FUELS.reduce(
+                        (sum, f) => sum + (forecast.perFuel[f.key][i] || 0),
+                        0
+                      );
+                      return (
+                        <td
+                          key={i}
+                          style={{ padding: "6px 8px", fontWeight: 700, background: "#f0eee6" }}
+                        >
+                          {fmt(t)}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: "6px 8px", fontWeight: 800, background: "#f0eee6" }}>
+                      {fmt(
+                        FUELS.reduce(
+                          (sum, f) =>
+                            sum +
+                            forecast.perFuel[f.key].reduce((a, b) => a + (b || 0), 0),
+                          0
+                        )
+                      )}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
             <p className="sub" style={{ margin: "10px 0 0" }}>
-              Η στήλη «Σύνολο» είναι η βάση για την παραγγελία της εβδομάδας —
-              πρόσθεσε το περιθώριο ασφαλείας που κρατάς στις δεξαμενές.
+              Η γραμμή «Σύνολο ημέρας» αντιστοιχεί στη στήλη «Σύνολο (χωρίς Δ.Θ.)»
+              του Excel σου.
             </p>
+
+            <div style={{ marginTop: 18, borderTop: "2px solid var(--line)", paddingTop: 14 }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Υπολογισμός παραγγελίας</h2>
+              <p className="sub" style={{ marginBottom: 10 }}>
+                Διάλεξε ποιες μέρες καλύπτει η παραγγελία. Αν παραγγέλνεις
+                Σάββατο μεσημέρι, βάλε το Σάββατο 50% και την Κυριακή 100%.
+              </p>
+              <div className="toolbar" style={{ alignItems: "flex-end", marginBottom: 12 }}>
+                {forecast.days.map((d, i) => (
+                  <label className="f" key={i}>
+                    {DAY_NAMES[(d.getDay() + 6) % 7]} {fmtShort(d)}
+                    <select
+                      value={weights[i] ?? 0}
+                      onChange={(e) =>
+                        setWeights({ ...weights, [i]: Number(e.target.value) })
+                      }
+                      style={{ width: 92 }}
+                    >
+                      <option value={0}>—</option>
+                      <option value={0.25}>25%</option>
+                      <option value={0.5}>50%</option>
+                      <option value={0.75}>75%</option>
+                      <option value={1}>100%</option>
+                    </select>
+                  </label>
+                ))}
+                <button
+                  className="btn secondary"
+                  onClick={() => setWeights({})}
+                  style={{ marginBottom: 2 }}
+                >
+                  Καθαρισμός
+                </button>
+              </div>
+
+              {Object.values(weights).some((w) => w > 0) ? (
+                <div className="gridwrap">
+                  <table className="sched">
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", paddingLeft: 10 }}>Καύσιμο</th>
+                        <th>Λίτρα προς παραγγελία</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {FUELS.map((f) => {
+                        const t = forecast.perFuel[f.key].reduce(
+                          (sum, v, i) => sum + (v || 0) * (weights[i] || 0),
+                          0
+                        );
+                        if (!t) return null;
+                        return (
+                          <tr key={f.key}>
+                            <td className="name">{f.label}</td>
+                            <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 16 }}>
+                              {fmt(t)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr>
+                        <td className="name" style={{ background: "#f0eee6" }}>
+                          <strong>Σύνολο</strong>
+                        </td>
+                        <td style={{ padding: "8px 10px", fontWeight: 800, fontSize: 16, background: "#f0eee6" }}>
+                          {fmt(
+                            FUELS.reduce(
+                              (sum, f) =>
+                                sum +
+                                forecast.perFuel[f.key].reduce(
+                                  (a, v, i) => a + (v || 0) * (weights[i] || 0),
+                                  0
+                                ),
+                              0
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p className="sub" style={{ margin: "10px 0 0" }}>
+                    Καλύπτει:{" "}
+                    {forecast.days
+                      .map((d, i) =>
+                        weights[i]
+                          ? `${DAY_NAMES[(d.getDay() + 6) % 7]} ${Math.round(weights[i] * 100)}%`
+                          : null
+                      )
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+              ) : (
+                <p className="sub">Διάλεξε ποσοστό σε τουλάχιστον μία μέρα.</p>
+              )}
+            </div>
           </div>
         )}
         {!forecast && (
