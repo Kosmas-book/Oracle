@@ -60,6 +60,7 @@ export default function FuelPage() {
   const [importMsg, setImportMsg] = useState("");
   const [weights, setWeights] = useState({}); // index ημέρας -> ποσοστό (0..1)
   const [importing, setImporting] = useState(false);
+  const [showMapping, setShowMapping] = useState(false);
 
   function load() {
     fetch("/api/fuel")
@@ -171,6 +172,15 @@ export default function FuelPage() {
       }
     }
     return g;
+  }
+
+  // Πόσες τιμές της στήλης μοιάζουν με ημερομηνίες.
+  function dateCount(rows, hr, col) {
+    let n = 0;
+    for (let i = hr + 1; i < rows.length; i++) {
+      if (excelToISO((rows[i] || [])[col]) ) n++;
+    }
+    return n;
   }
 
   function loadSheet(book, name, hrow) {
@@ -531,7 +541,53 @@ export default function FuelPage() {
               </label>
             </div>
           )}
-          {sheetRows && (
+          {sheetRows && !showMapping && (
+            <div style={{ marginTop: 12 }}>
+              <div
+                style={{
+                  background: "#f2f8f4",
+                  border: "1px solid #bcd9c7",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  marginBottom: 12,
+                }}
+              >
+                <strong style={{ fontSize: 14 }}>
+                  Βρέθηκαν {dateCount(sheetRows, headerRow, mapping.date)} μέρες με
+                  δεδομένα στο φύλλο «{sheetName}»
+                </strong>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
+                  {FUELS.map((f) => {
+                    const c = mapping[f.key];
+                    const head =
+                      c >= 0
+                        ? String((sheetRows[headerRow] || [])[c] || "").replace(/\s+/g, " ").trim()
+                        : null;
+                    return (
+                      <div key={f.key}>
+                        {f.label}:{" "}
+                        {head ? (
+                          <strong style={{ color: "var(--ink)" }}>{head}</strong>
+                        ) : (
+                          <span style={{ color: "var(--danger)" }}>δεν βρέθηκε</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="toolbar">
+                <button className="btn amber" onClick={doImport} disabled={importing}>
+                  Εισαγωγή από «{sheetName}»
+                </button>
+                <button className="btn secondary" onClick={() => setShowMapping(true)}>
+                  Αλλαγή αντιστοίχισης στηλών
+                </button>
+              </div>
+            </div>
+          )}
+
+          {sheetRows && showMapping && (
             <>
               <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
                 {[{ key: "date", label: "Ημερομηνία" }, ...FUELS].map((f) => (
@@ -546,8 +602,8 @@ export default function FuelPage() {
                       <option value={-1}>— καμία —</option>
                       {(sheetRows[headerRow] || []).map((h, i) => (
                         <option key={i} value={i}>
-                          Στ.{i + 1}: {String(h).replace(/\s+/g, " ").slice(0, 20) || "—"}
-                          {colCounts[i] ? ` (${colCounts[i]} τιμές)` : " (κενή)"}
+                          Στ.{i + 1}: {String(h).replace(/\s+/g, " ").slice(0, 20) || "(χωρίς τίτλο)"}
+                          {colCounts[i] ? ` — ${colCounts[i]} τιμές` : " — κενή"}
                         </option>
                       ))}
                     </select>
@@ -555,6 +611,9 @@ export default function FuelPage() {
                 ))}
                 <button className="btn amber" onClick={doImport} disabled={importing}>
                   Εισαγωγή από «{sheetName}»
+                </button>
+                <button className="btn secondary" onClick={() => setShowMapping(false)}>
+                  ← Απλή προβολή
                 </button>
               </div>
               <div className="gridwrap" style={{ marginTop: 10 }}>
