@@ -2,8 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import {
-  SHIFTS,
-  PAINTABLE,
+  allShifts,
   DAY_NAMES,
   mondayOf,
   isoDate,
@@ -23,6 +22,22 @@ export default function SchedulePage() {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => (new Date().getDay() + 6) % 7);
+  const [stationShifts, setStationShifts] = useState(null);
+  const [baseReqs, setBaseReqs] = useState(null); // {weekday, sunday} από Ρυθμίσεις
+  const [dayReq, setDayReq] = useState(null); // override 7 ημερών για ΤΗΝ εβδομάδα
+  const [showReq, setShowReq] = useState(false);
+  const [savedWeeks, setSavedWeeks] = useState([]);
+  const [prevInfo, setPrevInfo] = useState(null);
+  const SHIFTS = useMemo(() => allShifts(stationShifts), [stationShifts]);
+  const PAINTABLE = useMemo(() => Object.keys(SHIFTS), [SHIFTS]);
+
+  const defaultDayReq = useMemo(() => {
+    if (!baseReqs) return null;
+    return Array.from({ length: 7 }, (_, d) => ({
+      ...(d === 6 ? baseReqs.sunday : baseReqs.weekday),
+    }));
+  }, [baseReqs]);
+  const effectiveDayReq = dayReq || defaultDayReq;
 
   const days = useMemo(() => {
     const m = new Date(week + "T00:00:00");
@@ -42,7 +57,23 @@ export default function SchedulePage() {
     fetch("/api/employees")
       .then((r) => r.json())
       .then((d) => setEmployees(d.employees || []));
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        setStationShifts(d.settings?.shifts || null);
+        setBaseReqs({
+          weekday: d.settings?.weekday_req || {},
+          sunday: d.settings?.sunday_req || {},
+        });
+      });
+    loadWeeks();
   }, []);
+
+  function loadWeeks() {
+    fetch("/api/schedule?list=1")
+      .then((r) => r.json())
+      .then((d) => setSavedWeeks(d.weeks || []));
+  }
 
   useEffect(() => {
     setMsg("");
@@ -50,12 +81,19 @@ export default function SchedulePage() {
     fetch(`/api/schedule?week=${week}`)
       .then((r) => r.json())
       .then((d) => {
+        setPrevInfo(d.prev || null);
         if (d.schedule) {
           setGrid(d.schedule.grid || {});
           setNightPerson(d.schedule.night_person || "");
           setNextNight(d.schedule.next_night_person || "");
+          setDayReq(
+            Array.isArray(d.schedule.day_req) && d.schedule.day_req.length === 7
+              ? d.schedule.day_req
+              : null
+          );
           setDirty(false);
         } else {
+          setDayReq(null);
           setGrid({});
           // Προτεινόμενη συνέχεια από την προηγούμενη εβδομάδα:
           // ο "επόμενος βραδινός" της προηγούμενης γίνεται ο τρέχων.
@@ -102,6 +140,7 @@ export default function SchedulePage() {
         night_person: nightPerson || null,
         next_night_person: nextNight || null,
         locked,
+        day_req: effectiveDayReq,
       }),
     });
     const d = await res.json();
@@ -126,12 +165,14 @@ export default function SchedulePage() {
         grid,
         night_person: nightPerson || null,
         next_night_person: nextNight || null,
+        day_req: effectiveDayReq || [],
       }),
     });
     setBusy(false);
     if (res.ok) {
       setMsg("Αποθηκεύτηκε ✓");
       setDirty(false);
+      loadWeeks();
     } else {
       const d = await res.json().catch(() => ({}));
       setMsg("Σφάλμα αποθήκευσης: " + (d.error || res.status));
@@ -169,6 +210,25 @@ export default function SchedulePage() {
             <button className="btn secondary" onClick={() => shiftWeek(1)}>
               Επόμενη →
             </button>
+
+            <label className="f">
+              Ιστορικό ({savedWeeks.length})
+              <select
+                value={savedWeeks.some((w) => w.week_start === week) ? week : ""}
+                onChange={(e) => e.target.value && setWeek(e.target.value)}
+              >
+                <option value="">— αποθηκευμένες εβδομάδες —</option>
+                {savedWeeks.map((w) => {
+                  const m = new Date(w.week_start + "T00:00:00");
+                  return (
+                    <option key={w.week_start} value={w.week_start}>
+                      {fmtShort(m)} – {fmtShort(addDays(m, 6))} ·{" "}
+                      {m.getFullYear()}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
 
             <label className="f">
               Βραδινός Δευ–Σάβ
@@ -220,6 +280,20 @@ export default function SchedulePage() {
             >
               ⚙ Δημιουργία προγράμματος
             </button>
+            {prevInfo && (
+              <span style={{ fontSize: 12.5, color: "var(--muted)", flexBasis: "100%" }}>
+                {(() => {
+                  const m = new Date(week + "T00:00:00");
+                  m.setDate(m.getDate() - 7);
+                  const adj = prevInfo.week_start === isoDate(m);
+                  const nameOf = (id) =>
+                    employees.find((x) => x.id === id)?.name || "—";
+                  return adj
+                    ? `Από την περασμένη εβδομάδα: βραδινός ήταν ο/η ${nameOf(prevInfo.night_person)} (παίρνει Ρ τη Δευτέρα) · μπήκε Κυριακή ο/η ${nameOf(prevInfo.next_night_person)}.`
+                    : `⚠ Η αμέσως προηγούμενη εβδομάδα δεν είναι αποθηκευμένη — τα ρεπό μετά τα βραδινά δεν θα μπουν αυτόματα.`;
+                })()}
+              </span>
+            )}
             {(!nightPerson || !nextNight) && (
               <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
                 Για τη δημιουργία χρειάζονται βραδινός <em>και</em> επόμενος
@@ -231,6 +305,12 @@ export default function SchedulePage() {
             </button>
             <button className="btn secondary" onClick={() => window.print()}>
               🖨 Εκτύπωση
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() => setShowReq(!showReq)}
+            >
+              👥 Άτομα ανά μέρα {dayReq ? "(αλλαγμένα)" : ""}
             </button>
             {msg && (
               <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>
@@ -265,6 +345,78 @@ export default function SchedulePage() {
               </button>
             </div>
           </div>
+
+          {showReq && effectiveDayReq && (
+            <div style={{ marginTop: 14 }}>
+              <p className="sub" style={{ margin: "0 0 8px" }}>
+                Άτομα ανά βάρδια <strong>μόνο για αυτή την εβδομάδα</strong> —
+                π.χ. μέρα με κίνηση ή χειμωνιάτικο μοτίβο. Οι Ρυθμίσεις δεν
+                αλλάζουν. Ισχύει στο επόμενο «Δημιουργία προγράμματος».
+              </p>
+              <div className="gridwrap">
+                <table className="sched">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", paddingLeft: 10 }}>
+                        Βάρδια
+                      </th>
+                      {days.map((d, i) => (
+                        <th key={i}>
+                          {DAY_NAMES[i]}
+                          <div className="d">{fmtShort(d)}</div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(SHIFTS)
+                      .filter((c) => c !== "Β" && c !== "Ρ" && c !== "Ο")
+                      .map((c) => (
+                        <tr key={c}>
+                          <td
+                            className="name"
+                            style={{ background: SHIFTS[c].bg, color: SHIFTS[c].ink }}
+                          >
+                            {c} <small>{SHIFTS[c].hours}</small>
+                          </td>
+                          {effectiveDayReq.map((r, d) => (
+                            <td key={d} style={{ padding: 3 }}>
+                              <input
+                                type="number"
+                                min={0}
+                                max={8}
+                                value={r[c] ?? 0}
+                                onChange={(e) => {
+                                  const next = effectiveDayReq.map((x) => ({ ...x }));
+                                  const v = Number(e.target.value) || 0;
+                                  if (v > 0) next[d][c] = v;
+                                  else delete next[d][c];
+                                  setDayReq(next);
+                                  setDirty(true);
+                                }}
+                                style={{ width: 52, padding: "6px 4px", textAlign: "center" }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+              {dayReq && (
+                <button
+                  className="btn secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    setDayReq(null);
+                    setDirty(true);
+                  }}
+                >
+                  Επαναφορά στις Ρυθμίσεις
+                </button>
+              )}
+            </div>
+          )}
 
           {warnings.length > 0 && (
             <div className="warn">
