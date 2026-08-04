@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Logo from "@/lib/Logo";
 
 export default function Login() {
   const [mode, setMode] = useState("login"); // login | signup | forgot
@@ -54,8 +55,10 @@ export default function Login() {
 
   return (
     <div className="login-box">
-      <div className="pump">⛽</div>
-      <h1>Βάρδιες Πρατηρίου</h1>
+      <div className="login-logo">
+        <Logo size={44} />
+      </div>
+      <p className="login-tag">Πρόγραμμα βαρδιών &amp; καύσιμα</p>
 
       {mode === "login" && (
         <>

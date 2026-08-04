@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
+import Logo from "@/lib/Logo";
 import {
   allShifts,
   DAY_NAMES,
@@ -436,8 +437,8 @@ export default function SchedulePage() {
 
         <div className="print-only print-head">
           <div className="ph-brand">
-            <span className="ph-dot" />
-            <span>{stationName || "ΠΡΑΤΗΡΙΟ"}</span>
+            <Logo size={26} />
+            <span className="ph-station">{stationName || "ΠΡΑΤΗΡΙΟ"}</span>
           </div>
           <h2>ΕΒΔΟΜΑΔΙΑΙΟ ΠΡΟΓΡΑΜΜΑ ΕΡΓΑΣΙΑΣ</h2>
           <div className="ph-period">

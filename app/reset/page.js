@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Logo from "@/lib/Logo";
 
 export default function ResetPage({ searchParams }) {
   const token = searchParams?.token || "";
@@ -28,8 +29,10 @@ export default function ResetPage({ searchParams }) {
 
   return (
     <div className="login-box">
-      <div className="pump">⛽</div>
-      <h1>Νέο PIN</h1>
+      <div className="login-logo">
+        <Logo size={40} />
+      </div>
+      <h1 style={{ fontSize: 18, marginTop: 14 }}>Νέο PIN</h1>
       {!token ? (
         <p className="msg-err">
           Λείπει ο σύνδεσμος ανάκτησης. Ζήτησε νέον από τη σελίδα εισόδου.

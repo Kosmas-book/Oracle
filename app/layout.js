@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Βάρδιες Πρατηρίου",
-  description: "Εβδομαδιαίο πρόγραμμα εργασίας πρατηρίου",
+  title: "Turno · Πρόγραμμα βαρδιών",
+  description: "Εβδομαδιαίο πρόγραμμα εργασίας και πρόβλεψη καυσίμων",
 };
 
 export default function RootLayout({ children }) {
