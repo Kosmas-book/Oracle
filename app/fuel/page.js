@@ -273,7 +273,8 @@ export default function FuelPage() {
         if (byWeekday[wd][f.key].length < 4) byWeekday[wd][f.key].push(v);
       }
     }
-    const days = Array.from({ length: 7 }, (_, i) => addDays(new Date(), i + 1));
+    // Ξεκινάμε από ΣΗΜΕΡΑ: συχνά παραγγέλνεις μέσα στη μέρα για το υπόλοιπό της.
+    const days = Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
     const perFuel = {};
     for (const f of FUELS) {
       perFuel[f.key] = days.map((d) => {
@@ -302,7 +303,7 @@ export default function FuelPage() {
         {forecast && (
           <div className="card">
             <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>
-              Πρόβλεψη επόμενων 7 ημερών
+              Πρόβλεψη — από σήμερα και για 7 μέρες
             </h2>
             <p className="sub" style={{ marginBottom: 10 }}>
               Μέσος όρος των 4 πιο πρόσφατων ίδιων ημερών (π.χ. οι 4 τελευταίες
@@ -317,12 +318,12 @@ export default function FuelPage() {
                       Καύσιμο
                     </th>
                     {forecast.days.map((d, i) => (
-                      <th key={i}>
+                      <th key={i} style={i === 0 ? { background: "#FFE099" } : undefined}>
                         {DAY_NAMES[(d.getDay() + 6) % 7]}
-                        <div className="d">{fmtShort(d)}</div>
+                        <div className="d">{i === 0 ? "σήμερα" : fmtShort(d)}</div>
                       </th>
                     ))}
-                    <th>Σύνολο 7ημ (lt)</th>
+                    <th>Σύνολο (lt)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -385,12 +386,14 @@ export default function FuelPage() {
               <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Υπολογισμός παραγγελίας</h2>
               <p className="sub" style={{ marginBottom: 10 }}>
                 Διάλεξε ποιες μέρες καλύπτει η παραγγελία. Αν παραγγέλνεις
-                Σάββατο μεσημέρι, βάλε το Σάββατο 50% και την Κυριακή 100%.
+                σήμερα το μεσημέρι και το καύσιμο έρχεται αύριο: σήμερα 50%,
+                αύριο 100%.
               </p>
               <div className="toolbar" style={{ alignItems: "flex-end", marginBottom: 12 }}>
                 {forecast.days.map((d, i) => (
                   <label className="f" key={i}>
-                    {DAY_NAMES[(d.getDay() + 6) % 7]} {fmtShort(d)}
+                    {DAY_NAMES[(d.getDay() + 6) % 7]}{" "}
+                    {i === 0 ? "(σήμερα)" : fmtShort(d)}
                     <select
                       value={weights[i] ?? 0}
                       onChange={(e) =>
