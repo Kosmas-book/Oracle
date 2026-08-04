@@ -28,6 +28,7 @@ export default function SchedulePage() {
   const [showReq, setShowReq] = useState(false);
   const [savedWeeks, setSavedWeeks] = useState([]);
   const [prevInfo, setPrevInfo] = useState(null);
+  const [stationName, setStationName] = useState("");
   const SHIFTS = useMemo(() => allShifts(stationShifts), [stationShifts]);
   const PAINTABLE = useMemo(() => Object.keys(SHIFTS), [SHIFTS]);
 
@@ -67,6 +68,9 @@ export default function SchedulePage() {
         });
       });
     loadWeeks();
+    fetch("/api/station")
+      .then((r) => r.json())
+      .then((d) => d.name && setStationName(d.name));
   }, []);
 
   function loadWeeks() {
@@ -430,6 +434,17 @@ export default function SchedulePage() {
           )}
         </div>
 
+        <div className="print-only print-head">
+          <div className="ph-brand">
+            <span className="ph-dot" />
+            <span>{stationName || "ΠΡΑΤΗΡΙΟ"}</span>
+          </div>
+          <h2>ΕΒΔΟΜΑΔΙΑΙΟ ΠΡΟΓΡΑΜΜΑ ΕΡΓΑΣΙΑΣ</h2>
+          <div className="ph-period">
+            {fmtShort(days[0])} – {fmtShort(days[6])} · {days[0].getFullYear()}
+          </div>
+        </div>
+
         <div className="card gridwrap desktop-sched">
           <table className="sched">
             <thead>
@@ -487,6 +502,50 @@ export default function SchedulePage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="print-only print-foot">
+          <div className="pf-legend">
+            {Object.keys(SHIFTS)
+              .filter((c) => SHIFTS[c].hours)
+              .map((c) => (
+                <span className="pf-item" key={c}>
+                  <span
+                    className="pf-chip"
+                    style={{ background: SHIFTS[c].bg, color: SHIFTS[c].ink }}
+                  >
+                    {c}
+                  </span>
+                  {SHIFTS[c].hours}
+                </span>
+              ))}
+            <span className="pf-item">
+              <span className="pf-chip" style={{ background: SHIFTS["Ρ"].bg, color: SHIFTS["Ρ"].ink }}>
+                Ρ
+              </span>
+              Ρεπό
+            </span>
+            <span className="pf-item">
+              <span className="pf-chip" style={{ background: SHIFTS["Ο"].bg, color: SHIFTS["Ο"].ink }}>
+                Ο
+              </span>
+              Άδεια
+            </span>
+          </div>
+          <div className="pf-sign">
+            <div>
+              <div className="pf-line" />
+              Υπεύθυνος καταστήματος
+            </div>
+            <div className="pf-date">
+              Εκδόθηκε:{" "}
+              {new Date().toLocaleDateString("el-GR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="card mobile-sched">
