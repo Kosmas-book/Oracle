@@ -11,10 +11,10 @@ export function middleware(req) {
   ) {
     return NextResponse.next();
   }
+  // Το cookie πρέπει να υπάρχει· η εγκυρότητά του ελέγχεται στα API routes
+  // (αντιστοίχιση PIN → κατάστημα στη βάση).
   const pin = req.cookies.get("vardia_pin")?.value;
-  if (pin && process.env.APP_PIN && pin === process.env.APP_PIN) {
-    return NextResponse.next();
-  }
+  if (pin) return NextResponse.next();
   if (pathname.startsWith("/api")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

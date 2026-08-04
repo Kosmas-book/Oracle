@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "ΚΑΛΥΨΩ · Βάρδιες",
+  title: "Βάρδιες Πρατηρίου",
   description: "Εβδομαδιαίο πρόγραμμα εργασίας πρατηρίου",
 };
 

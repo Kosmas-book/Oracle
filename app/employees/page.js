@@ -1,9 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
 import Nav from "@/lib/Nav";
-import { SHIFTS, PAINTABLE, DAY_NAMES } from "@/lib/shifts";
+import { allShifts, DAY_NAMES } from "@/lib/shifts";
+import { useMemo } from "react";
 
-const SHIFT_OPTIONS = PAINTABLE.filter((c) => c !== "Ρ" && c !== "Ο");
+function useStationShifts() {
+  const [raw, setRaw] = useState(null);
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => setRaw(d.settings?.shifts || null));
+  }, []);
+  return useMemo(() => allShifts(raw), [raw]);
+}
 
 const EMPTY = {
   name: "",
@@ -17,7 +26,8 @@ const EMPTY = {
   fixed_days: {},
 };
 
-function EmployeeForm({ initial, onSaved, onCancel, onDeleted }) {
+function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
+  const SHIFT_OPTIONS = Object.keys(SHIFTS).filter((c) => c !== "Ρ" && c !== "Ο");
   const [e, setE] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -155,7 +165,7 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted }) {
                 style={{ padding: "4px 6px", fontSize: 12 }}
               >
                 <option value="">—</option>
-                {["Ρ", "Π", "Π2", "Π4", "Α", "Α2", "Α3", "Β"].map((c) => (
+                {["Ρ", ...SHIFT_OPTIONS].map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
@@ -199,6 +209,7 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted }) {
 }
 
 export default function EmployeesPage() {
+  const SHIFTS = useStationShifts();
   const [list, setList] = useState([]);
   const [editing, setEditing] = useState(null); // id | "new" | null
 
@@ -257,6 +268,7 @@ export default function EmployeesPage() {
         <div className="card">
           {editing === "new" ? (
             <EmployeeForm
+              SHIFTS={SHIFTS}
               initial={{ ...EMPTY }}
               onSaved={upsertLocal}
               onCancel={() => setEditing(null)}
@@ -273,6 +285,7 @@ export default function EmployeesPage() {
           {list.map((e) =>
             editing === e.id ? (
               <EmployeeForm
+                SHIFTS={SHIFTS}
                 key={e.id}
                 initial={{ ...EMPTY, ...e }}
                 onSaved={upsertLocal}

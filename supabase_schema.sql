@@ -45,3 +45,9 @@ alter table fuel_entries enable row level security;
 -- Νέες στήλες ρυθμίσεων (ασφαλές να ξανατρέξει και σε υπάρχουσα βάση):
 alter table settings add column if not exists work_days int not null default 6;
 alter table settings add column if not exists max_per_shift int not null default 4;
+
+-- Σταθερές μέρες ανά υπάλληλο (π.χ. {"6":"Ρ"} = πάντα ρεπό Κυριακή):
+alter table employees add column if not exists fixed_days jsonb not null default '{}';
+
+-- Βάρδιες ανά κατάστημα (κενό = προεπιλογές ΚΑΛΥΨΩ):
+alter table settings add column if not exists shifts jsonb not null default '{}';
