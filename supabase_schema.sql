@@ -51,3 +51,9 @@ alter table employees add column if not exists fixed_days jsonb not null default
 
 -- Βάρδιες ανά κατάστημα (κενό = προεπιλογές ΚΑΛΥΨΩ):
 alter table settings add column if not exists shifts jsonb not null default '{}';
+
+-- Email ανάκτησης PIN ανά κατάστημα:
+alter table stations add column if not exists email text;
+alter table stations add column if not exists reset_token text;
+alter table stations add column if not exists reset_expires timestamptz;
+create index if not exists stations_reset_token_idx on stations (reset_token);

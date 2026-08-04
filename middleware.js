@@ -5,6 +5,9 @@ export function middleware(req) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/signup") ||
+    pathname.startsWith("/api/reset") ||
+    pathname.startsWith("/reset") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
     pathname === "/icon.svg"

@@ -2,58 +2,99 @@
 import { useState } from "react";
 
 export default function Login() {
-  const [mode, setMode] = useState("login"); // login | signup
-  const [pin, setPin] = useState("");
+  const [mode, setMode] = useState("login"); // login | signup | forgot
   const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+  const [email, setEmail] = useState("");
   const [invite, setInvite] = useState("");
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
     setBusy(true);
     setErr("");
-    const url = mode === "login" ? "/api/auth" : "/api/signup";
-    const body =
-      mode === "login" ? { pin } : { pin, name, code: invite };
+    setInfo("");
+    let url = "/api/auth";
+    let body = { name, pin };
+    if (mode === "signup") {
+      url = "/api/signup";
+      body = { name, pin, email, code: invite };
+    } else if (mode === "forgot") {
+      url = "/api/reset";
+      body = { email };
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    const d = await res.json().catch(() => ({}));
     setBusy(false);
     if (res.ok) {
-      window.location.href = "/";
-    } else {
-      const d = await res.json().catch(() => ({}));
-      setErr(d.error || "Λάθος PIN.");
-    }
+      if (mode === "forgot") setInfo(d.message || "Στάλθηκε email.");
+      else window.location.href = "/";
+    } else setErr(d.error || "Κάτι πήγε στραβά.");
   }
+
+  const link = (m, text) => (
+    <a
+      href="#"
+      onClick={(e) => {
+        e.preventDefault();
+        setErr("");
+        setInfo("");
+        setMode(m);
+      }}
+      style={{ color: "var(--petrol)", fontWeight: 600, fontSize: 14 }}
+    >
+      {text}
+    </a>
+  );
 
   return (
     <div className="login-box">
       <div className="pump">⛽</div>
       <h1>Βάρδιες Πρατηρίου</h1>
-      {mode === "login" ? (
+
+      {mode === "login" && (
         <>
-          <p className="sub">Βάλε το PIN του καταστήματός σου</p>
-          <input
-            type="password"
-            inputMode="numeric"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && pin && submit()}
-            autoFocus
-          />
-        </>
-      ) : (
-        <>
-          <p className="sub">Νέο κατάστημα — φτιάξε όνομα και PIN</p>
+          <p className="sub">Όνομα καταστήματος και PIN</p>
           <input
             type="text"
-            placeholder="π.χ. ΚΑΛΥΨΩ 102"
+            placeholder="π.χ. ΚΑΛΥΨΩ 024"
             value={name}
             onChange={(e) => setName(e.target.value)}
             style={{ letterSpacing: "normal", fontSize: 16 }}
+            autoFocus
+          />
+          <input
+            type="password"
+            inputMode="numeric"
+            placeholder="PIN"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && name && pin && submit()}
+          />
+        </>
+      )}
+
+      {mode === "signup" && (
+        <>
+          <p className="sub">Νέο κατάστημα</p>
+          <input
+            type="text"
+            placeholder="Όνομα (π.χ. ΚΑΛΥΨΩ 102)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{ letterSpacing: "normal", fontSize: 16 }}
+          />
+          <input
+            type="email"
+            placeholder="Email (για ανάκτηση PIN)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ letterSpacing: "normal", fontSize: 15 }}
           />
           <input
             type="password"
@@ -71,28 +112,47 @@ export default function Login() {
           />
         </>
       )}
+
+      {mode === "forgot" && (
+        <>
+          <p className="sub">
+            Βάλε το email του καταστήματος — θα λάβεις σύνδεσμο για νέο PIN.
+          </p>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ letterSpacing: "normal", fontSize: 15 }}
+            autoFocus
+          />
+        </>
+      )}
+
       {err && <p className="msg-err">{err}</p>}
+      {info && <p className="msg-ok">{info}</p>}
+
       <button
         className="btn"
         onClick={submit}
-        disabled={busy || !pin || (mode === "signup" && !name)}
+        disabled={
+          busy ||
+          (mode === "login" && (!name || !pin)) ||
+          (mode === "signup" && (!name || !pin || !email)) ||
+          (mode === "forgot" && !email)
+        }
       >
-        {mode === "login" ? "Είσοδος" : "Δημιουργία καταστήματος"}
+        {mode === "login"
+          ? "Είσοδος"
+          : mode === "signup"
+          ? "Δημιουργία καταστήματος"
+          : "Αποστολή συνδέσμου"}
       </button>
-      <p style={{ marginTop: 14 }}>
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            setErr("");
-            setMode(mode === "login" ? "signup" : "login");
-          }}
-          style={{ color: "var(--petrol)", fontWeight: 600, fontSize: 14 }}
-        >
-          {mode === "login"
-            ? "Νέο κατάστημα; Φτιάξε το εδώ"
-            : "← Έχω ήδη PIN, είσοδος"}
-        </a>
+
+      <p style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+        {mode !== "login" && link("login", "← Είσοδος")}
+        {mode === "login" && link("forgot", "Ξέχασα το PIN")}
+        {mode === "login" && link("signup", "Νέο κατάστημα; Φτιάξε το εδώ")}
       </p>
     </div>
   );
