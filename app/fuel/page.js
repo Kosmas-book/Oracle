@@ -51,6 +51,10 @@ export default function FuelPage() {
   const [busy, setBusy] = useState(false);
 
   // Εισαγωγή Excel
+  const [wb, setWb] = useState(null);
+  const [sheetName, setSheetName] = useState("");
+  const [headerRow, setHeaderRow] = useState(0);
+  const [colCounts, setColCounts] = useState([]);
   const [sheetRows, setSheetRows] = useState(null); // array of arrays
   const [mapping, setMapping] = useState({});
   const [importMsg, setImportMsg] = useState("");
@@ -91,6 +95,101 @@ export default function FuelPage() {
     load();
   }
 
+  // Βρίσκει τη γραμμή κεφαλίδων: αυτή με τα περισσότερα ονόματα καυσίμων.
+  function detectHeaderRow(rows) {
+    let best = 0;
+    let bestScore = 0;
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const joined = rows[i].map((x) => String(x).toLowerCase());
+      let score = 0;
+      for (const h of joined) {
+        if (/95|98|100|diesel|avio|υγρα|cng|unleaded|ultimate/.test(h)) score++;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  // Πόσες αριθμητικές τιμές έχει κάθε στήλη στις γραμμές δεδομένων.
+  function columnCounts(rows, hr) {
+    const counts = [];
+    for (let i = hr + 1; i < rows.length; i++) {
+      (rows[i] || []).forEach((v, c) => {
+        const n = toNum(v);
+        if (n != null && n > 0) counts[c] = (counts[c] || 0) + 1;
+      });
+    }
+    return counts;
+  }
+
+  // Αντιστοίχιση από κεφαλίδες ΚΑΙ από το πού υπάρχουν πραγματικά νούμερα —
+  // σε αυτά τα φύλλα η ίδια βενζίνη μπορεί να αλλάζει στήλη ανά μήνα.
+  function guessMapping(head, counts) {
+    const pats = {
+      unl100: /100|ultimate|racing|speed/,
+      unl98: /98|lrp|power|super/,
+      unl95: /95|unleaded|ekonomy|economy/,
+      diesel_avio: /avio|αβιο/,
+      diesel: /diesel|πετρ|ντιζ|ντηζ/,
+    };
+    const g = { date: 0, unl100: -1, unl98: -1, unl95: -1, diesel: -1, diesel_avio: -1 };
+    const taken = new Set();
+    const has = (c) => (counts[c] || 0) > 0;
+
+    for (const key of ["diesel_avio", "diesel", "unl100", "unl98", "unl95"]) {
+      const cands = [];
+      head.forEach((raw, i) => {
+        const h = String(raw).toLowerCase().replace(/\s+/g, " ");
+        if (!h) return;
+        if (/αυτοματ|πωλητ/.test(h)) return; // αυτόματοι πωλητές = υποσύνολα
+        if (/θερμ|heating|σύνολο|συνολο|κινήσεις/.test(h)) return;
+        if (key === "diesel" && /avio|αβιο/.test(h)) return;
+        if (key === "unl95" && /98|100/.test(h)) return;
+        if (key === "unl98" && /95|100/.test(h)) return;
+        if (key === "unl100" && /95|98/.test(h)) return;
+        if (pats[key].test(h)) cands.push(i);
+      });
+      // Μόνο στήλες με ταιριαστή κεφαλίδα — οι κενές διπλανές είναι σύνολα.
+      // Κερδίζει αυτή με τις περισσότερες μη-μηδενικές τιμές.
+      let pick = null;
+      let bestN = 0;
+      for (const c of cands) {
+        if (c < 0 || taken.has(c)) continue;
+        const n = counts[c] || 0;
+        if (n > bestN) {
+          bestN = n;
+          pick = c;
+        }
+      }
+      if (pick != null && bestN > 0) {
+        g[key] = pick;
+        taken.add(pick);
+      }
+    }
+    return g;
+  }
+
+  function loadSheet(book, name, hrow) {
+    const ws = book.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+    if (!rows.length) {
+      setSheetRows(null);
+      setImportMsg("Το φύλλο είναι άδειο.");
+      return;
+    }
+    const hr = hrow == null ? detectHeaderRow(rows) : hrow;
+    const limited = rows.slice(0, 500);
+    const counts = columnCounts(limited, hr);
+    setHeaderRow(hr);
+    setSheetRows(limited);
+    setColCounts(counts);
+    setMapping(guessMapping(rows[hr] || [], counts));
+    setImportMsg("");
+  }
+
   function onFile(ev) {
     const file = ev.target.files?.[0];
     if (!file) return;
@@ -98,41 +197,15 @@ export default function FuelPage() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = XLSX.read(e.target.result, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, {
-          header: 1,
-          raw: true,
-          defval: "",
-        });
-        if (!rows.length) {
-          setImportMsg("Το φύλλο είναι άδειο.");
-          return;
-        }
-        setSheetRows(rows.slice(0, 500));
-        // Αυτόματη μαντεψιά αντιστοίχισης από τις επικεφαλίδες.
-        const head = rows[0].map((h) => String(h).toLowerCase());
-        const guess = {
-          date: -1,
-          unl100: -1,
-          unl98: -1,
-          unl95: -1,
-          diesel: -1,
-          diesel_avio: -1,
-        };
-        head.forEach((h, i) => {
-          if (guess.date < 0 && /ημερ|date|ημ\/νια/.test(h)) guess.date = i;
-          if (guess.unl100 < 0 && /100/.test(h)) guess.unl100 = i;
-          if (guess.unl98 < 0 && /98/.test(h)) guess.unl98 = i;
-          if (guess.unl95 < 0 && /95/.test(h)) guess.unl95 = i;
-          // Πρώτα το Avio — αλλιώς το «diesel avio» θα έπιανε το σκέτο diesel.
-          if (guess.diesel_avio < 0 && /avio|αβιο/.test(h)) guess.diesel_avio = i;
-          else if (guess.diesel < 0 && /diesel|πετρ|ντιζ|ντηζ/.test(h))
-            guess.diesel = i;
-        });
-        if (guess.date < 0) guess.date = 0;
-        setMapping(guess);
-        setImportMsg("");
+        const book = XLSX.read(e.target.result, { type: "array", cellDates: false });
+        setWb(book);
+        // Προεπιλογή: το φύλλο του τρέχοντος μήνα αν υπάρχει, αλλιώς το πρώτο.
+        const months = ["ιανουάριος","φεβρουάριος","μάρτιος","απρίλιος","μάιος","ιούνιος","ιούλιος","αύγουστος","σεπτέμβριος","οκτώβριος","νοέμβριος","δεκέμβριος"];
+        const cur = months[new Date().getMonth()];
+        const pick =
+          book.SheetNames.find((n) => n.toLowerCase() === cur) || book.SheetNames[0];
+        setSheetName(pick);
+        loadSheet(book, pick, null);
       } catch (err) {
         setImportMsg("Δεν διαβάστηκε το αρχείο: " + err.message);
       }
@@ -146,7 +219,7 @@ export default function FuelPage() {
     setImporting(true);
     setImportMsg("");
     const out = [];
-    for (let i = 1; i < sheetRows.length; i++) {
+    for (let i = headerRow + 1; i < sheetRows.length; i++) {
       const row = sheetRows[i];
       const d = excelToISO(row[mapping.date]);
       if (!d) continue;
@@ -174,8 +247,9 @@ export default function FuelPage() {
     const d = await res.json();
     setImporting(false);
     if (res.ok) {
-      setImportMsg(`Εισήχθησαν ${d.imported} μέρες ✓`);
-      setSheetRows(null);
+      setImportMsg(
+        `Εισήχθησαν ${d.imported} μέρες από το φύλλο «${sheetName}» ✓`
+      );
       load();
     } else setImportMsg("Σφάλμα: " + (d.error || res.status));
   }
@@ -289,11 +363,45 @@ export default function FuelPage() {
         <div className="card">
           <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Εισαγωγή από Excel</h2>
           <p className="sub" style={{ marginBottom: 10 }}>
-            Δέχεται .xlsx/.xls/.csv με μία γραμμή ανά μέρα. Διάλεξε το αρχείο,
-            δείξε ποια στήλη είναι τι, και πάτα Εισαγωγή. Υπάρχουσες ημερομηνίες
-            ενημερώνονται με τις νέες τιμές.
+            Δέχεται .xls/.xlsx/.csv με μία γραμμή ανά μέρα. Αν το αρχείο έχει
+            ένα φύλλο ανά μήνα, διάλεξε ποιον μήνα θες — κάνε μία εισαγωγή για
+            κάθε μήνα. Γραμμές χωρίς ημερομηνία (Σύνολα, Μέση Τιμή) και κενές
+            μέρες αγνοούνται. Υπάρχουσες ημερομηνίες ενημερώνονται.
           </p>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
+          {wb && (
+            <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
+              <label className="f">
+                Φύλλο (μήνας)
+                <select
+                  value={sheetName}
+                  onChange={(e) => {
+                    setSheetName(e.target.value);
+                    loadSheet(wb, e.target.value, null);
+                  }}
+                >
+                  {wb.SheetNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="f">
+                Γραμμή κεφαλίδων
+                <select
+                  value={headerRow}
+                  onChange={(e) => loadSheet(wb, sheetName, Number(e.target.value))}
+                >
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <option key={i} value={i}>
+                      Γραμμή {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           {sheetRows && (
             <>
               <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
@@ -307,30 +415,42 @@ export default function FuelPage() {
                       }
                     >
                       <option value={-1}>— καμία —</option>
-                      {sheetRows[0].map((h, i) => (
+                      {(sheetRows[headerRow] || []).map((h, i) => (
                         <option key={i} value={i}>
-                          Στήλη {i + 1}: {String(h).slice(0, 22) || "(κενή)"}
+                          Στ.{i + 1}: {String(h).replace(/\s+/g, " ").slice(0, 20) || "—"}
+                          {colCounts[i] ? ` (${colCounts[i]} τιμές)` : " (κενή)"}
                         </option>
                       ))}
                     </select>
                   </label>
                 ))}
                 <button className="btn amber" onClick={doImport} disabled={importing}>
-                  Εισαγωγή {sheetRows.length - 1} γραμμών
+                  Εισαγωγή από «{sheetName}»
                 </button>
               </div>
               <div className="gridwrap" style={{ marginTop: 10 }}>
                 <table className="sched">
                   <tbody>
-                    {sheetRows.slice(0, 4).map((r, i) => (
-                      <tr key={i}>
-                        {r.slice(0, 8).map((c, j) => (
-                          <td key={j} style={{ padding: "5px 8px", fontSize: 12.5, fontWeight: i === 0 ? 700 : 400 }}>
-                            {String(c).slice(0, 16)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
+                    {sheetRows
+                      .slice(headerRow, headerRow + 4)
+                      .map((r, i) => (
+                        <tr key={i}>
+                          {r.slice(0, 12).map((c, j) => (
+                            <td
+                              key={j}
+                              style={{
+                                padding: "5px 8px",
+                                fontSize: 12.5,
+                                fontWeight: i === 0 ? 700 : 400,
+                              }}
+                            >
+                              {i > 0 && j === 0
+                                ? excelToISO(c) || String(c).slice(0, 14)
+                                : String(c).replace(/\n/g, " ").slice(0, 18)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
