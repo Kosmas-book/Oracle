@@ -33,7 +33,7 @@ export async function GET(req) {
       .maybeSingle(),
     sb
       .from("schedules")
-      .select("week_start,night_person,next_night_person")
+      .select("week_start,night_person,next_night_person,grid,day_req")
       .eq("station_id", st.id)
       .lt("week_start", week)
       .order("week_start", { ascending: false })

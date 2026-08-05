@@ -32,7 +32,12 @@ export async function POST(req) {
 
   const sb = supabaseAdmin();
   const [emp, set, prev] = await Promise.all([
-    sb.from("employees").select("*").eq("station_id", st.id),
+    sb
+      .from("employees")
+      .select("*")
+      .eq("station_id", st.id)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
     sb.from("settings").select("*").eq("station_id", st.id).maybeSingle(),
     sb
       .from("schedules")
@@ -40,11 +45,27 @@ export async function POST(req) {
       .eq("station_id", st.id)
       .lt("week_start", week_start)
       .order("week_start", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(6),
   ]);
   if (emp.error)
     return NextResponse.json({ error: emp.error.message }, { status: 500 });
+
+  // Ιστορικό τελευταίων εβδομάδων: πόσες φορές έκανε ο καθένας κάθε βάρδια και
+  // πόσες Κυριακές δούλεψε — για να μοιράζονται δίκαια οι δύσκολες βάρδιες.
+  const past = Array.isArray(prev.data) ? prev.data : [];
+  const prevWeek = past[0] || null;
+  const history = {};
+  for (const wk of past) {
+    for (const [empId, row] of Object.entries(wk.grid || {})) {
+      if (!Array.isArray(row)) continue;
+      history[empId] = history[empId] || { codes: {}, sundays: 0 };
+      row.forEach((c, d) => {
+        if (!c || c === "Ρ" || c === "Ο") return;
+        history[empId].codes[c] = (history[empId].codes[c] || 0) + 1;
+        if (d === 6) history[empId].sundays++;
+      });
+    }
+  }
 
   const settings = set.data || {
     weekday_req: { "Π": 3, "Α": 3, "Π4": 1, "Α3": 1 },
@@ -58,11 +79,11 @@ export async function POST(req) {
   const dprev = new Date(week_start + "T00:00:00");
   dprev.setDate(dprev.getDate() - 7);
   const expected = dprev.toISOString().slice(0, 10);
-  const adjacent = prev.data?.week_start === expected;
+  const adjacent = prevWeek?.week_start === expected;
 
   const prevSunday = {};
-  if (adjacent && prev.data?.grid) {
-    for (const [empId, row] of Object.entries(prev.data.grid)) {
+  if (adjacent && prevWeek?.grid) {
+    for (const [empId, row] of Object.entries(prevWeek.grid)) {
       if (Array.isArray(row) && row[6]) prevSunday[empId] = row[6];
     }
   }
@@ -78,7 +99,8 @@ export async function POST(req) {
     shifts: settings.shifts || null,
     nightPersonId: night_person || null,
     nextNightPersonId: next_night_person || null,
-    prevNightPersonId: adjacent ? prev.data?.night_person || null : null,
+    prevNightPersonId: adjacent ? prevWeek?.night_person || null : null,
+    history,
     locked: locked || {},
     prevSunday,
     dayReq,

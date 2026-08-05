@@ -6,7 +6,8 @@
 
 ### 1. Supabase
 1. Νέο project στο supabase.com (region: Frankfurt).
-2. SQL Editor → επικόλλησε όλο το περιεχόμενο του `supabase_schema.sql` → Run.
+2. SQL Editor → επικόλλησε όλο το `supabase_schema.sql` → Run. (Αν αναβαθμίζεις υπάρχουσα βάση από παλιότερη έκδοση, τρέξε το `migration_upgrade.sql` αντί για αυτό.)
+3. Στο τέλος του `supabase_schema.sql` υπάρχει σχολιασμένο `insert into stations` — ξεσχολίασέ το με το όνομα, PIN και email του καταστήματός σου και τρέξε το. Εναλλακτικά, φτιάξε το κατάστημα από τη σελίδα εισόδου («Νέο κατάστημα»).
 3. Settings → API: κράτα το **Project URL** και το **service_role key** (το secret, όχι το anon).
 
 ### 2. GitHub

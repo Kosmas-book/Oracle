@@ -30,6 +30,7 @@ export default function SchedulePage() {
   const [savedWeeks, setSavedWeeks] = useState([]);
   const [prevInfo, setPrevInfo] = useState(null);
   const [stationName, setStationName] = useState("");
+  const [history, setHistory] = useState([]); // στοίβα αναίρεσης
   const SHIFTS = useMemo(() => allShifts(stationShifts), [stationShifts]);
   const PAINTABLE = useMemo(() => Object.keys(SHIFTS), [SHIFTS]);
 
@@ -87,6 +88,7 @@ export default function SchedulePage() {
       .then((r) => r.json())
       .then((d) => {
         setPrevInfo(d.prev || null);
+        setHistory([]);
         if (d.schedule) {
           setGrid(d.schedule.grid || {});
           setNightPerson(d.schedule.night_person || "");
@@ -116,6 +118,7 @@ export default function SchedulePage() {
 
   function paint(empId, d) {
     if (selected === null) return;
+    pushHistory();
     setGrid((g) => {
       const row = [...(g[empId] || ["", "", "", "", "", "", ""])];
       row[d] = selected === "×" ? "" : selected;
@@ -124,7 +127,117 @@ export default function SchedulePage() {
     setDirty(true);
   }
 
+  // Κρατάει φωτογραφία της τρέχουσας κατάστασης πριν από κάθε αλλαγή.
+  function pushHistory() {
+    setHistory((h) => {
+      const snap = {
+        grid: JSON.parse(JSON.stringify(grid)),
+        nightPerson,
+        nextNight,
+        dayReq: dayReq ? JSON.parse(JSON.stringify(dayReq)) : null,
+      };
+      const next = [...h, snap];
+      return next.length > 40 ? next.slice(next.length - 40) : next;
+    });
+  }
+
+  function undo() {
+    if (!history.length) return;
+    const last = history[history.length - 1];
+    setGrid(last.grid);
+    setNightPerson(last.nightPerson);
+    setNextNight(last.nextNight);
+    setDayReq(last.dayReq);
+    setHistory((h) => h.slice(0, -1));
+    setDirty(true);
+    setWarnings([]);
+    setMsg("Αναιρέθηκε — πάτα Αποθήκευση για να γραφτεί");
+  }
+
+  async function reloadSaved() {
+    if (
+      dirty &&
+      !confirm("Θα χαθούν οι αλλαγές που δεν έχεις αποθηκεύσει. Συνέχεια;")
+    )
+      return;
+    const r = await fetch(`/api/schedule?week=${week}`);
+    const d = await r.json();
+    if (d.schedule) {
+      setGrid(d.schedule.grid || {});
+      setNightPerson(d.schedule.night_person || "");
+      setNextNight(d.schedule.next_night_person || "");
+      setDayReq(
+        Array.isArray(d.schedule.day_req) && d.schedule.day_req.length === 7
+          ? d.schedule.day_req
+          : null
+      );
+      setHistory([]);
+      setDirty(false);
+      setWarnings([]);
+      setMsg("Επαναφέρθηκε η τελευταία αποθηκευμένη έκδοση");
+    } else {
+      setMsg("Δεν υπάρχει αποθηκευμένη έκδοση για αυτή την εβδομάδα");
+    }
+  }
+
+  function copyPrevious() {
+    if (!prevInfo?.grid) return;
+    if (
+      dirty &&
+      !confirm(
+        "Έχεις αλλαγές που δεν έχουν αποθηκευτεί. Η αντιγραφή θα τις αντικαταστήσει — συνέχεια;"
+      )
+    )
+      return;
+    pushHistory();
+    const m = new Date(week + "T00:00:00");
+    m.setDate(m.getDate() - 7);
+    const adj = prevInfo.week_start === isoDate(m);
+
+    const g = {};
+    for (const e of activeEmployees) {
+      const row = prevInfo.grid[e.id];
+      g[e.id] = Array.isArray(row) ? [...row] : ["", "", "", "", "", "", ""];
+    }
+
+    const notes = [];
+    if (adj) {
+      // Ο κύκλος βραδινού προχωράει: ο περσινός «επόμενος» αναλαμβάνει.
+      const newNight = prevInfo.next_night_person || "";
+      const oldNight = prevInfo.night_person || "";
+      const nameOf = (id) => employees.find((x) => x.id === id)?.name || "—";
+
+      if (newNight && g[newNight]) {
+        g[newNight] = ["Β", "Β", "Β", "Β", "Β", "Β", "Ρ"];
+        notes.push(`${nameOf(newNight)} → βραδινός Δευ–Σάβ`);
+      }
+      if (oldNight && g[oldNight]) {
+        // Τελείωσε τα βραδινά: Ρ Δευτέρα, οι υπόλοιπες μέρες θέλουν βάρδιες.
+        g[oldNight] = ["Ρ", "", "", "", "", "", ""];
+        notes.push(`${nameOf(oldNight)} → Ρ Δευτέρα, οι υπόλοιπες μέρες κενές`);
+      }
+      setNightPerson(newNight);
+      setNextNight("");
+      notes.push("όρισε τον επόμενο βραδινό");
+    } else {
+      notes.push("η προηγούμενη εβδομάδα δεν είναι η αμέσως προηγούμενη — έλεγξε τα Β");
+    }
+
+    setGrid(g);
+    setWarnings([]);
+    setDirty(true);
+    setMsg("Αντιγράφηκε: " + notes.join(" · "));
+  }
+
   async function generate() {
+    if (
+      dirty &&
+      !confirm(
+        "Έχεις αλλαγές που δεν έχουν αποθηκευτεί. Η δημιουργία θα ξαναγράψει το πρόγραμμα — συνέχεια; (μπορείς να το αναιρέσεις μετά)"
+      )
+    )
+      return;
+    pushHistory();
     setBusy(true);
     setMsg("");
     // Κλειδωμένα κελιά: ό,τι έχει μαρκαριστεί ως Άδεια (Ο) κρατιέται.
@@ -274,6 +387,18 @@ export default function SchedulePage() {
             </label>
 
             <button
+              className="btn secondary"
+              onClick={copyPrevious}
+              disabled={!prevInfo?.grid}
+              title={
+                prevInfo?.grid
+                  ? "Φέρνει το πρόγραμμα της προηγούμενης εβδομάδας"
+                  : "Δεν υπάρχει αποθηκευμένη προηγούμενη εβδομάδα"
+              }
+            >
+              ⧉ Αντιγραφή προηγούμενης
+            </button>
+            <button
               className="btn amber"
               onClick={generate}
               disabled={busy || !nightPerson || !nextNight}
@@ -306,7 +431,22 @@ export default function SchedulePage() {
               </span>
             )}
             <button className="btn" onClick={save} disabled={busy || !dirty}>
-              Αποθήκευση
+              Αποθήκευση{dirty ? " •" : ""}
+            </button>
+            <button
+              className="btn secondary"
+              onClick={undo}
+              disabled={!history.length}
+              title="Αναιρεί την τελευταία αλλαγή"
+            >
+              ↶ Αναίρεση{history.length ? ` (${history.length})` : ""}
+            </button>
+            <button
+              className="btn secondary"
+              onClick={reloadSaved}
+              title="Φέρνει ξανά την τελευταία αποθηκευμένη έκδοση από τη βάση"
+            >
+              ⟲ Επαναφορά αποθηκευμένου
             </button>
             <button className="btn secondary" onClick={() => window.print()}>
               🖨 Εκτύπωση

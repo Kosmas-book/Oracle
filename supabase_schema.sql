@@ -1,59 +1,80 @@
--- ΚΑΛΥΨΩ · Βάρδιες — Τρέξε το ΜΙΑ φορά στο Supabase SQL Editor.
+-- ============================================================
+-- Turno — ΠΛΗΡΕΣ SCHEMA. Τρέξε το ΜΙΑ φορά σε ΚΑΘΑΡΟ Supabase.
+-- Στήνει ολόκληρη τη βάση από το μηδέν. Ασφαλές να ξανατρέξει.
+-- ============================================================
 
-create table if not exists employees (
+-- 1. Καταστήματα (κάθε πρατήριο = μία γραμμή, PIN = κλειδί εισόδου)
+create table if not exists stations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
+  pin text not null unique,
+  email text,
+  reset_token text,
+  reset_expires timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists stations_reset_token_idx on stations (reset_token);
+
+-- 2. Προσωπικό
+create table if not exists employees (
+  id uuid primary key default gen_random_uuid(),
+  station_id uuid not null references stations(id) on delete cascade,
+  name text not null,
   active boolean not null default true,
-  employment_type text not null default 'full', -- 'full' | 'part'
+  employment_type text not null default 'full',   -- 'full' | 'part'
   min_days int not null default 3,
   max_days int not null default 6,
   allowed_shifts text[] not null default '{"Π","Π4","Α","Α3"}',
   night_rotation boolean not null default false,
+  fixed_days jsonb not null default '{}',          -- π.χ. {"6":"Ρ"} = πάντα ρεπό Κυριακή
   sort_order int not null default 100,
   created_at timestamptz not null default now()
 );
+create index if not exists employees_station_idx on employees (station_id);
 
+-- 3. Ρυθμίσεις ανά κατάστημα
 create table if not exists settings (
-  id int primary key,
-  weekday_req jsonb not null default '{"Π4":1,"Α3":1,"Π":3,"Α":3}',
-  sunday_req jsonb not null default '{"Π":2,"Π2":1,"Π4":1,"Α":2,"Α2":1}',
+  station_id uuid primary key references stations(id) on delete cascade,
+  weekday_req jsonb not null default '{"Π":3,"Α":3,"Π4":1,"Α3":1}',
+  sunday_req  jsonb not null default '{"Π":2,"Π2":1,"Π4":1,"Α":2,"Α2":1}',
+  work_days int not null default 6,                -- 6 = εξαήμερο, 5 = πενθήμερο
+  max_per_shift int not null default 4,            -- μέγιστα άτομα ταυτόχρονα
+  shifts jsonb not null default '{}',              -- βάρδιες/ωράρια· κενό = προεπιλογές
   updated_at timestamptz not null default now()
 );
-insert into settings (id) values (1) on conflict (id) do nothing;
 
+-- 4. Εβδομαδιαία προγράμματα
 create table if not exists schedules (
-  week_start date primary key, -- πάντα Δευτέρα
+  station_id uuid not null references stations(id) on delete cascade,
+  week_start date not null,                        -- πάντα Δευτέρα
   grid jsonb not null default '{}',
   night_person uuid references employees(id) on delete set null,
   next_night_person uuid references employees(id) on delete set null,
-  updated_at timestamptz not null default now()
+  day_req jsonb not null default '[]',             -- απαιτήσεις ανά μέρα για ΤΗΝ εβδομάδα
+  updated_at timestamptz not null default now(),
+  primary key (station_id, week_start)
 );
 
+-- 5. Ημερήσιες πωλήσεις καυσίμων
 create table if not exists fuel_entries (
-  entry_date date primary key,
+  station_id uuid not null references stations(id) on delete cascade,
+  entry_date date not null,
   liters jsonb not null default '{}',
   notes text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  primary key (station_id, entry_date)
 );
 
--- RLS ενεργό, ΧΩΡΙΣ policies: πρόσβαση μόνο μέσω service role (API routes).
+-- 6. RLS ενεργό ΧΩΡΙΣ policies: πρόσβαση μόνο μέσω service role (API routes).
+alter table stations enable row level security;
 alter table employees enable row level security;
 alter table settings enable row level security;
 alter table schedules enable row level security;
 alter table fuel_entries enable row level security;
 
--- Νέες στήλες ρυθμίσεων (ασφαλές να ξανατρέξει και σε υπάρχουσα βάση):
-alter table settings add column if not exists work_days int not null default 6;
-alter table settings add column if not exists max_per_shift int not null default 4;
-
--- Σταθερές μέρες ανά υπάλληλο (π.χ. {"6":"Ρ"} = πάντα ρεπό Κυριακή):
-alter table employees add column if not exists fixed_days jsonb not null default '{}';
-
--- Βάρδιες ανά κατάστημα (κενό = προεπιλογές ΚΑΛΥΨΩ):
-alter table settings add column if not exists shifts jsonb not null default '{}';
-
--- Email ανάκτησης PIN ανά κατάστημα:
-alter table stations add column if not exists email text;
-alter table stations add column if not exists reset_token text;
-alter table stations add column if not exists reset_expires timestamptz;
-create index if not exists stations_reset_token_idx on stations (reset_token);
+-- ============================================================
+-- ΠΡΩΤΟ ΚΑΤΑΣΤΗΜΑ — άλλαξε όνομα, PIN και email πριν τρέξεις:
+-- ============================================================
+-- insert into stations (name, pin, email)
+--   values ('ΚΑΛΥΨΩ 024', '1234', 'to-email-sou@gmail.com')
+--   on conflict (pin) do nothing;

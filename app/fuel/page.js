@@ -297,6 +297,38 @@ export default function FuelPage() {
     return { days, perFuel, count: sorted.length, from: sorted[0].entry_date, to: sorted[sorted.length - 1].entry_date };
   }, [entries]);
 
+  // Ακρίβεια: για κάθε μία από τις τελευταίες μέρες, τι θα προέβλεπε το μοντέλο
+  // (μέσος των 4 προηγούμενων ίδιων ημερών) σε σχέση με το τι πούλησες τελικά.
+  const accuracy = useMemo(() => {
+    if (entries.length < 21) return null;
+    const sorted = [...entries].sort((a, b) => (a.entry_date < b.entry_date ? -1 : 1));
+    let sumAbs = 0;
+    let sumSigned = 0;
+    let n = 0;
+    const rows = [];
+    for (let i = sorted.length - 1; i >= 0 && rows.length < 10; i--) {
+      const cur = sorted[i];
+      const wd = (new Date(cur.entry_date + "T00:00:00").getDay() + 6) % 7;
+      const prev = [];
+      for (let j = i - 1; j >= 0 && prev.length < 4; j--) {
+        const w2 = (new Date(sorted[j].entry_date + "T00:00:00").getDay() + 6) % 7;
+        if (w2 === wd) prev.push(sorted[j]);
+      }
+      if (prev.length < 3) continue;
+      const tot = (e) => FUELS.reduce((s2, f) => s2 + (e.liters?.[f.key] || 0), 0);
+      const actual = tot(cur);
+      if (!actual) continue;
+      const pred = prev.reduce((s2, e) => s2 + tot(e), 0) / prev.length;
+      const dev = ((actual - pred) / pred) * 100;
+      sumAbs += Math.abs(dev);
+      sumSigned += dev;
+      n++;
+      rows.push({ date: cur.entry_date, wd, pred, actual, dev });
+    }
+    if (!n) return null;
+    return { rows, mape: sumAbs / n, bias: sumSigned / n, n };
+  }, [entries]);
+
   const fmt = (n) =>
     n == null ? "—" : Math.round(n).toLocaleString("el-GR");
 
@@ -491,6 +523,84 @@ export default function FuelPage() {
             </div>
           </div>
         )}
+        {accuracy && (
+          <div className="card">
+            <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>
+              Πόσο πέφτει μέσα η πρόβλεψη
+            </h2>
+            <p className="sub" style={{ marginBottom: 10 }}>
+              Σύγκριση για τις τελευταίες {accuracy.n} μέρες: τι θα προέβλεπε το
+              μοντέλο έναντι του τι πούλησες τελικά (σύνολο όλων των καυσίμων).
+            </p>
+            <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--petrol)" }}>
+                  ±{accuracy.mape.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  μέση απόκλιση
+                </div>
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 800,
+                    color: Math.abs(accuracy.bias) < 3 ? "var(--ok)" : "var(--danger)",
+                  }}
+                >
+                  {accuracy.bias > 0 ? "+" : ""}
+                  {accuracy.bias.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  τάση ({accuracy.bias > 0 ? "υποεκτιμά" : "υπερεκτιμά"})
+                </div>
+              </div>
+            </div>
+            <div className="gridwrap">
+              <table className="sched">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", paddingLeft: 10 }}>Ημέρα</th>
+                    <th>Πρόβλεψη</th>
+                    <th>Πραγματικά</th>
+                    <th>Απόκλιση</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accuracy.rows.map((r) => (
+                    <tr key={r.date}>
+                      <td className="name">
+                        {DAY_NAMES[r.wd]} {r.date.slice(8)}/{r.date.slice(5, 7)}
+                      </td>
+                      <td style={{ padding: "6px 8px" }}>{fmt(r.pred)}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 600 }}>
+                        {fmt(r.actual)}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 8px",
+                          fontWeight: 700,
+                          color:
+                            Math.abs(r.dev) < 8 ? "var(--ok)" : "var(--danger)",
+                        }}
+                      >
+                        {r.dev > 0 ? "+" : ""}
+                        {r.dev.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="sub" style={{ margin: "10px 0 0" }}>
+              Κάτω από ±8% η πρόβλεψη είναι αξιόπιστη για παραγγελία. Σταθερή
+              τάση προς μία κατεύθυνση σημαίνει ότι πρέπει να προσθέτεις ή να
+              αφαιρείς ένα σταθερό ποσοστό.
+            </p>
+          </div>
+        )}
+
         {!forecast && (
           <div className="card">
             <strong>Πρόβλεψη:</strong> χρειάζονται τουλάχιστον 14 μέρες
