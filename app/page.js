@@ -3,6 +3,18 @@ import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import Logo from "@/lib/Logo";
 import {
+  IconGenerate,
+  IconSave,
+  IconPrint,
+  IconUndo,
+  IconRestore,
+  IconCopy,
+  IconUsers,
+  IconPrev,
+  IconNext,
+  IconWarn,
+} from "@/lib/Icons";
+import {
   allShifts,
   DAY_NAMES,
   mondayOf,
@@ -315,7 +327,7 @@ export default function SchedulePage() {
         <div className="card noprint">
           <div className="toolbar">
             <button className="btn secondary" onClick={() => shiftWeek(-1)}>
-              ← Προηγούμενη
+              <IconPrev /> Προηγούμενη
             </button>
             <input
               type="date"
@@ -326,7 +338,7 @@ export default function SchedulePage() {
               }
             />
             <button className="btn secondary" onClick={() => shiftWeek(1)}>
-              Επόμενη →
+              Επόμενη <IconNext />
             </button>
 
             <label className="f">
@@ -347,6 +359,8 @@ export default function SchedulePage() {
                 })}
               </select>
             </label>
+
+            <span className="sep" />
 
             <label className="f">
               Βραδινός Δευ–Σάβ
@@ -386,6 +400,8 @@ export default function SchedulePage() {
               </select>
             </label>
 
+            <span className="sep" />
+
             <button
               className="btn secondary"
               onClick={copyPrevious}
@@ -396,7 +412,7 @@ export default function SchedulePage() {
                   : "Δεν υπάρχει αποθηκευμένη προηγούμενη εβδομάδα"
               }
             >
-              ⧉ Αντιγραφή προηγούμενης
+              <IconCopy /> Αντιγραφή προηγούμενης
             </button>
             <button
               className="btn amber"
@@ -408,7 +424,7 @@ export default function SchedulePage() {
                   : ""
               }
             >
-              ⚙ Δημιουργία προγράμματος
+              <IconGenerate /> Δημιουργία προγράμματος
             </button>
             {prevInfo && (
               <span style={{ fontSize: 12.5, color: "var(--muted)", flexBasis: "100%" }}>
@@ -431,7 +447,8 @@ export default function SchedulePage() {
               </span>
             )}
             <button className="btn" onClick={save} disabled={busy || !dirty}>
-              Αποθήκευση{dirty ? " •" : ""}
+              <IconSave /> Αποθήκευση
+              {dirty && <span className="dot-dirty" />}
             </button>
             <button
               className="btn secondary"
@@ -439,23 +456,24 @@ export default function SchedulePage() {
               disabled={!history.length}
               title="Αναιρεί την τελευταία αλλαγή"
             >
-              ↶ Αναίρεση{history.length ? ` (${history.length})` : ""}
+              <IconUndo /> Αναίρεση{history.length ? ` ${history.length}` : ""}
             </button>
             <button
               className="btn secondary"
               onClick={reloadSaved}
               title="Φέρνει ξανά την τελευταία αποθηκευμένη έκδοση από τη βάση"
             >
-              ⟲ Επαναφορά αποθηκευμένου
+              <IconRestore /> Επαναφορά
             </button>
             <button className="btn secondary" onClick={() => window.print()}>
-              🖨 Εκτύπωση
+              <IconPrint /> Εκτύπωση
             </button>
             <button
               className="btn secondary"
               onClick={() => setShowReq(!showReq)}
             >
-              👥 Άτομα ανά μέρα {dayReq ? "(αλλαγμένα)" : ""}
+              <IconUsers /> Άτομα ανά μέρα
+              {dayReq && <span className="pill">αλλαγμένα</span>}
             </button>
             {msg && (
               <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>
@@ -565,7 +583,7 @@ export default function SchedulePage() {
 
           {warnings.length > 0 && (
             <div className="warn">
-              <strong>Προσοχή — θέλει χειροκίνητο έλεγχο:</strong>
+              <strong><IconWarn width={15} height={15} /> Προσοχή — θέλει χειροκίνητο έλεγχο</strong>
               <ul>
                 {warnings.map((w, i) => (
                   <li key={i}>{w}</li>
@@ -635,9 +653,18 @@ export default function SchedulePage() {
               ))}
               {activeEmployees.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 16, textAlign: "center" }}>
-                    Δεν υπάρχουν ενεργοί υπάλληλοι — πρόσθεσέ τους στο
-                    «Προσωπικό».
+                  <td colSpan={9}>
+                    <div className="empty">
+                      <IconUsers width={38} height={38} strokeWidth={1.4} />
+                      <strong>Δεν υπάρχουν ενεργοί υπάλληλοι</strong>
+                      <p>
+                        Πήγαινε στο «Προσωπικό» και πρόσθεσε την ομάδα σου. Μόλις
+                        υπάρχει προσωπικό, το πρόγραμμα βγαίνει αυτόματα.
+                      </p>
+                      <a className="btn" href="/employees">
+                        Άνοιγμα Προσωπικού
+                      </a>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -732,7 +759,14 @@ export default function SchedulePage() {
             );
           })}
           {activeEmployees.length === 0 && (
-            <p>Δεν υπάρχουν ενεργοί υπάλληλοι.</p>
+            <div className="empty">
+              <IconUsers width={38} height={38} strokeWidth={1.4} />
+              <strong>Δεν υπάρχουν ενεργοί υπάλληλοι</strong>
+              <p>Πρόσθεσε προσωπικό για να βγει πρόγραμμα.</p>
+              <a className="btn" href="/employees">
+                Άνοιγμα Προσωπικού
+              </a>
+            </div>
           )}
         </div>
       </div>

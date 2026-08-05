@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Nav from "@/lib/Nav";
 import { allShifts, DAY_NAMES } from "@/lib/shifts";
+import { IconPlus, IconSave, IconEdit, IconMoon, IconClock, IconLock, IconEmpty } from "@/lib/Icons";
 import { useMemo } from "react";
 
 function useStationShifts() {
@@ -174,15 +175,6 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
         </span>
       </label>
       <label className="f">
-        Σειρά
-        <input
-          type="number"
-          value={e.sort_order}
-          onChange={(ev) => setE({ ...e, sort_order: Number(ev.target.value) })}
-          style={{ width: 70 }}
-        />
-      </label>
-      <label className="f">
         Ενεργός
         <select
           value={e.active ? "1" : "0"}
@@ -193,7 +185,7 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
         </select>
       </label>
       <button className="btn" onClick={save} disabled={busy || !e.name.trim()}>
-        Αποθήκευση
+        <IconSave /> Αποθήκευση
       </button>
       <button className="btn secondary" onClick={onCancel} disabled={busy}>
         Άκυρο
@@ -276,7 +268,7 @@ export default function EmployeesPage() {
             />
           ) : (
             <button className="btn amber" onClick={() => setEditing("new")}>
-              + Νέος υπάλληλος
+              <IconPlus /> Νέος υπάλληλος
             </button>
           )}
         </div>
@@ -296,51 +288,82 @@ export default function EmployeesPage() {
                 }}
               />
             ) : (
-              <div className="rowline" key={e.id}>
-                <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <button className="btn secondary" style={{ padding: "1px 9px", fontSize: 13 }} onClick={() => move(list.indexOf(e), -1)} title="Πάνω">▲</button>
-                  <button className="btn secondary" style={{ padding: "1px 9px", fontSize: 13 }} onClick={() => move(list.indexOf(e), 1)} title="Κάτω">▼</button>
-                </span>
-                <div style={{ minWidth: 200 }}>
-                  <strong>{e.name}</strong>{" "}
-                  {!e.active && (
-                    <span style={{ color: "var(--muted)", fontSize: 12 }}>
-                      (ανενεργός)
-                    </span>
-                  )}
-                  <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                    {e.employment_type === "part"
-                      ? `Part-time ${e.min_days}–${e.max_days} μέρες`
-                      : "Πλήρους απασχόλησης"}
-                    {e.night_rotation ? " · εναλλαγή βραδινού" : ""}
-                    {e.fixed_days && Object.keys(e.fixed_days).length
-                      ? " · σταθερά: " +
-                        Object.entries(e.fixed_days)
-                          .sort((a, b) => Number(a[0]) - Number(b[0]))
-                          .map(([d, c]) => `${DAY_NAMES[Number(d)]} ${c}`)
-                          .join(", ")
-                      : ""}
+              <div className="emp-card" key={e.id}>
+                <div className="emp-move">
+                  <button
+                    className="emp-arrow"
+                    onClick={() => move(list.indexOf(e), -1)}
+                    title="Πάνω"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    className="emp-arrow"
+                    onClick={() => move(list.indexOf(e), 1)}
+                    title="Κάτω"
+                  >
+                    ▼
+                  </button>
+                </div>
+
+                <div className="emp-main">
+                  <div className="emp-name">
+                    {e.name}
+                    {!e.active && <span className="pill muted">ανενεργός</span>}
+                    {e.employment_type === "part" && (
+                      <span className="pill">part-time {e.min_days}–{e.max_days}</span>
+                    )}
+                    {e.night_rotation && (
+                      <span className="pill" title="Μπαίνει στην εναλλαγή βραδινού">
+                        <IconMoon width={11} height={11} /> βραδινός
+                      </span>
+                    )}
                   </div>
+
+                  <div className="emp-shifts">
+                    {(e.allowed_shifts || []).map((c) => (
+                      <span
+                        key={c}
+                        className="emp-chip"
+                        style={{ background: SHIFTS[c]?.bg, color: SHIFTS[c]?.ink }}
+                        title={SHIFTS[c]?.hours}
+                      >
+                        {c}
+                      </span>
+                    ))}
+                    {!(e.allowed_shifts || []).length && (
+                      <span className="emp-none">καμία βάρδια ορισμένη</span>
+                    )}
+                  </div>
+
+                  {e.fixed_days && Object.keys(e.fixed_days).length > 0 && (
+                    <div className="emp-fixed">
+                      <IconLock width={12} height={12} />
+                      {Object.entries(e.fixed_days)
+                        .sort((a, b) => Number(a[0]) - Number(b[0]))
+                        .map(([d, c]) => `${DAY_NAMES[Number(d)]} ${c}`)
+                        .join(" · ")}
+                    </div>
+                  )}
                 </div>
-                <div className="shift-checks">
-                  {(e.allowed_shifts || []).map((c) => (
-                    <label
-                      key={c}
-                      className="on"
-                      style={{ background: SHIFTS[c]?.bg, color: SHIFTS[c]?.ink, cursor: "default" }}
-                    >
-                      {c}
-                    </label>
-                  ))}
-                </div>
-                <span style={{ flex: 1 }} />
+
                 <button className="btn secondary" onClick={() => setEditing(e.id)}>
-                  Επεξεργασία
+                  <IconEdit /> Επεξεργασία
                 </button>
               </div>
             )
           )}
-          {list.length === 0 && <p>Δεν υπάρχουν υπάλληλοι ακόμα.</p>}
+          {list.length === 0 && (
+            <div className="empty">
+              <IconEmpty />
+              <strong>Δεν έχεις προσθέσει προσωπικό ακόμα</strong>
+              <p>
+                Πρόσθεσε τους υπαλλήλους σου με το κουμπί «Νέος υπάλληλος». Για
+                τον καθένα όρισε τι βάρδιες μπορεί να κάνει — αυτό είναι που
+                χρησιμοποιεί η αυτόματη δημιουργία προγράμματος.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </>

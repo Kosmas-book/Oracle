@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import { isoDate, addDays, fmtShort, DAY_NAMES } from "@/lib/shifts";
+import { IconEmpty, IconUpload, IconSave } from "@/lib/Icons";
 import * as XLSX from "xlsx";
 
 const FUELS = [
@@ -603,9 +604,17 @@ export default function FuelPage() {
 
         {!forecast && (
           <div className="card">
-            <strong>Πρόβλεψη:</strong> χρειάζονται τουλάχιστον 14 μέρες
-            δεδομένων ({entries.length} μέχρι τώρα). Ανέβασε ένα Excel μήνα ή
-            συνέχισε την καθημερινή καταχώρηση.
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <IconUpload width={20} height={20} />
+              <div>
+                <strong>Η πρόβλεψη ενεργοποιείται με 14 μέρες δεδομένων</strong>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>
+                  Έχεις {entries.length}{" "}
+                  {entries.length === 1 ? "μέρα" : "μέρες"} — ανέβασε ένα Excel
+                  μήνα για να ξεκινήσεις αμέσως.
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -785,7 +794,7 @@ export default function FuelPage() {
               <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minWidth: 140 }} />
             </label>
             <button className="btn amber" onClick={save} disabled={busy}>
-              Καταχώρηση
+              <IconSave /> Καταχώρηση
             </button>
             {msg && (
               <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>{msg}</span>
@@ -828,8 +837,16 @@ export default function FuelPage() {
               ))}
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 16, textAlign: "center" }}>
-                    Καμία καταχώρηση ακόμα.
+                  <td colSpan={8}>
+                    <div className="empty">
+                      <IconEmpty />
+                      <strong>Καμία καταχώρηση πωλήσεων ακόμα</strong>
+                      <p>
+                        Ανέβασε το μηνιαίο Excel με τα στατιστικά ή καταχώρησε
+                        χειροκίνητα τα λίτρα της ημέρας. Με 14 μέρες δεδομένων
+                        εμφανίζεται αυτόματα η πρόβλεψη παραγγελίας.
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
