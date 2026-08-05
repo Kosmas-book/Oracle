@@ -1,63 +1,144 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
-import { allShifts, DEFAULT_SHIFTS } from "@/lib/shifts";
+import { allShifts, DEFAULT_SHIFTS, DAY_NAMES } from "@/lib/shifts";
+import { IconSave, IconPlus, IconWarn } from "@/lib/Icons";
 
-function ReqEditor({ title, note, req, onChange, SHIFTS }) {
+const hhmm = (h) =>
+  `${String(Math.floor(h % 24)).padStart(2, "0")}:${String(
+    Math.round(((h % 1) + 1e-6) * 60) % 60
+  ).padStart(2, "0")}`;
+
+// Έλεγχος κάλυψης 24ώρου + κορύφωσης, με βάση απαιτήσεις μιας μέρας.
+function coverageOf(req, SHIFTS, includeNight = true) {
+  const hours = Array(24).fill(0);
+  const add = (code, n) => {
+    const sh = SHIFTS[code];
+    if (!sh || sh.start == null) return;
+    for (let h = sh.start; h < sh.end; h++) hours[Math.floor(h) % 24] += n;
+  };
+  for (const [code, n] of Object.entries(req || {})) add(code, Number(n) || 0);
+  if (includeNight) add("Β", 1);
+  const gaps = [];
+  let g = null;
+  hours.forEach((v, h) => {
+    if (v === 0 && g === null) g = h;
+    if (v > 0 && g !== null) {
+      gaps.push([g, h]);
+      g = null;
+    }
+  });
+  if (g !== null) gaps.push([g, 24]);
+  return { hours, peak: Math.max(...hours), gaps };
+}
+
+function ReqEditor({ title, note, req, onChange, SHIFTS, maxPerShift }) {
   const codes = Object.keys(SHIFTS).filter(
     (c) => c !== "Β" && c !== "Ρ" && c !== "Ο"
   );
+  const total = Object.values(req || {}).reduce((s, x) => s + (Number(x) || 0), 0);
+  const cov = coverageOf(req, SHIFTS, !!SHIFTS["Β"]);
   return (
     <div className="card">
-      <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>{title}</h2>
-      <p className="sub" style={{ marginBottom: 12 }}>{note}</p>
+      <div className="sec-head">
+        <h2>{title}</h2>
+        <span className="pill">{total + 1} βάρδιες/μέρα</span>
+      </div>
+      <p className="sub" style={{ marginBottom: 14 }}>{note}</p>
+
       <div className="reqgrid">
         {codes.map((c) => (
-          <label className="f" key={c}>
-            <span>
-              <strong
-                style={{
-                  background: SHIFTS[c].bg,
-                  color: SHIFTS[c].ink,
-                  borderRadius: 6,
-                  padding: "2px 7px",
-                  marginRight: 6,
-                }}
+          <div className="req-item" key={c}>
+            <div className="req-label">
+              <span
+                className="emp-chip"
+                style={{ background: SHIFTS[c].bg, color: SHIFTS[c].ink }}
               >
                 {c}
-              </strong>
-              {SHIFTS[c].hours}
-            </span>
+              </span>
+              <span className="req-hours">{SHIFTS[c].hours}</span>
+            </div>
             <input
               type="number"
               min={0}
-              max={6}
+              max={8}
               value={req[c] ?? 0}
               onChange={(e) =>
                 onChange({ ...req, [c]: Number(e.target.value) || 0 })
               }
             />
-          </label>
+          </div>
         ))}
       </div>
+
+      {(cov.gaps.length > 0 || cov.peak > maxPerShift) && (
+        <div className="warn" style={{ marginTop: 14 }}>
+          <strong>
+            <IconWarn width={14} height={14} /> Προσοχή σε αυτές τις ρυθμίσεις
+          </strong>
+          <ul>
+            {cov.gaps.length > 0 && (
+              <li>
+                Ακάλυπτες ώρες:{" "}
+                {cov.gaps
+                  .map(
+                    ([a, b]) =>
+                      `${String(a).padStart(2, "0")}:00–${String(b).padStart(2, "0")}:00`
+                  )
+                  .join(", ")}{" "}
+                — το πρατήριο μένει χωρίς προσωπικό.
+              </li>
+            )}
+            {cov.peak > maxPerShift && (
+              <li>
+                Κορύφωση {cov.peak} άτομα ταυτόχρονα, ενώ το όριο είναι{" "}
+                {maxPerShift}.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
 
-function NewShiftRow({ onAdd }) {
+function NewShiftRow({ onAdd, exists }) {
+  const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
   const [start, setStart] = useState("06:00");
   const [end, setEnd] = useState("14:00");
+  const [err, setErr] = useState("");
+
+  if (!open)
+    return (
+      <button className="btn secondary" onClick={() => setOpen(true)} style={{ marginTop: 12 }}>
+        <IconPlus /> Προσθήκη βάρδιας
+      </button>
+    );
+
   return (
-    <div className="rowline" style={{ background: "#fbfaf6", borderRadius: 10, padding: 10 }}>
+    <div className="newshift">
       <label className="f">
-        Νέος κωδικός
-        <input type="text" maxLength={3} value={code} onChange={(e) => setCode(e.target.value.trim())} style={{ width: 70 }} />
+        Κωδικός
+        <input
+          type="text"
+          maxLength={3}
+          placeholder="π.χ. Π3"
+          value={code}
+          onChange={(e) => setCode(e.target.value.trim())}
+          style={{ width: 78 }}
+        />
       </label>
       <label className="f">
-        Όνομα
-        <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: 150 }} />
+        Ονομασία
+        <input
+          type="text"
+          placeholder="π.χ. Ενδιάμεση"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          style={{ width: 160 }}
+        />
       </label>
       <label className="f">
         Έναρξη
@@ -68,8 +149,10 @@ function NewShiftRow({ onAdd }) {
         <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
       </label>
       <button
-        className="btn secondary"
+        className="btn"
         onClick={() => {
+          if (!code) return setErr("Βάλε κωδικό.");
+          if (exists(code)) return setErr("Υπάρχει ήδη αυτός ο κωδικός.");
           const [sh, sm] = start.split(":").map(Number);
           const [eh, em] = end.split(":").map(Number);
           let st = sh + sm / 60;
@@ -78,10 +161,16 @@ function NewShiftRow({ onAdd }) {
           onAdd(code, label || code, st, en);
           setCode("");
           setLabel("");
+          setErr("");
+          setOpen(false);
         }}
       >
-        + Προσθήκη βάρδιας
+        Προσθήκη
       </button>
+      <button className="btn secondary" onClick={() => { setOpen(false); setErr(""); }}>
+        Άκυρο
+      </button>
+      {err && <span className="msg-err">{err}</span>}
     </div>
   );
 }
@@ -91,10 +180,12 @@ export default function SettingsPage() {
   const [sunday, setSunday] = useState({});
   const [workDays, setWorkDays] = useState(6);
   const [maxPerShift, setMaxPerShift] = useState(4);
-  const [shiftDefs, setShiftDefs] = useState(null); // {code:{label,start,end}}
-  const SHIFTS = allShifts(shiftDefs);
+  const [shiftDefs, setShiftDefs] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const SHIFTS = useMemo(() => allShifts(shiftDefs), [shiftDefs]);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -108,6 +199,14 @@ export default function SettingsPage() {
         setShiftDefs(sh && Object.keys(sh).length ? sh : { ...DEFAULT_SHIFTS });
       });
   }, []);
+
+  function touch(fn) {
+    return (v) => {
+      setDirty(true);
+      setMsg("");
+      fn(v);
+    };
+  }
 
   async function save() {
     setBusy(true);
@@ -124,168 +223,178 @@ export default function SettingsPage() {
       }),
     });
     setBusy(false);
-    setMsg(res.ok ? "Αποθηκεύτηκε ✓" : "Σφάλμα αποθήκευσης");
+    if (res.ok) {
+      setMsg("Αποθηκεύτηκε ✓");
+      setDirty(false);
+    } else setMsg("Σφάλμα αποθήκευσης");
   }
 
   return (
     <>
       <Nav />
       <div className="wrap">
-        <h1>Ρυθμίσεις κάλυψης</h1>
+        <h1>Ρυθμίσεις καταστήματος</h1>
         <p className="sub">
-          Πόσα άτομα χρειάζονται σε κάθε βάρδια. Ο βραδινός (Β) δεν ορίζεται
-          εδώ — μπαίνει από την εναλλαγή βραδινού στη σελίδα του προγράμματος.
+          Εδώ ορίζεις τους κανόνες που χρησιμοποιεί η αυτόματη δημιουργία
+          προγράμματος. Οι αλλαγές ισχύουν από την επόμενη δημιουργία.
         </p>
 
+        {/* 1 — Βάρδιες */}
         <div className="card">
-          <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Γενικοί κανόνες</h2>
-          <div className="toolbar" style={{ alignItems: "flex-end", marginTop: 10 }}>
+          <div className="sec-head">
+            <h2>
+              <span className="sec-num">1</span> Βάρδιες &amp; ωράρια
+            </h2>
+          </div>
+          <p className="sub" style={{ marginBottom: 14 }}>
+            Οι βάρδιες του δικού σου καταστήματος. Για βάρδια που ξημερώνει,
+            βάλε λήξη μικρότερη από την έναρξη. Αν το πρατήριο δεν είναι 24ωρο,
+            αφαίρεσε τη νυχτερινή (<strong>Β</strong>) — τότε το πρόγραμμα δεν
+            θα ζητάει καθόλου βραδινούς.
+          </p>
+
+          {shiftDefs &&
+            Object.entries(shiftDefs).map(([code, def]) => (
+              <div className="shift-row" key={code}>
+                <span
+                  className="emp-chip lg"
+                  style={{ background: SHIFTS[code]?.bg, color: SHIFTS[code]?.ink }}
+                >
+                  {code}
+                </span>
+                <input
+                  className="shift-label"
+                  type="text"
+                  value={def.label || ""}
+                  onChange={(e) =>
+                    touch(setShiftDefs)({
+                      ...shiftDefs,
+                      [code]: { ...def, label: e.target.value },
+                    })
+                  }
+                />
+                <input
+                  type="time"
+                  value={hhmm(def.start)}
+                  onChange={(e) => {
+                    const [h, m] = e.target.value.split(":").map(Number);
+                    touch(setShiftDefs)({
+                      ...shiftDefs,
+                      [code]: { ...def, start: h + m / 60 },
+                    });
+                  }}
+                />
+                <span className="dash">–</span>
+                <input
+                  type="time"
+                  value={hhmm(def.end)}
+                  onChange={(e) => {
+                    const [h, m] = e.target.value.split(":").map(Number);
+                    let en = h + m / 60;
+                    if (en <= def.start) en += 24;
+                    touch(setShiftDefs)({
+                      ...shiftDefs,
+                      [code]: { ...def, end: en },
+                    });
+                  }}
+                />
+                <span className="dur">{Math.round(def.end - def.start)}ω</span>
+                <span className="grow" />
+                <button
+                  className="btn secondary danger-text"
+                  onClick={() => {
+                    if (!confirm(`Αφαίρεση της βάρδιας «${code}»;`)) return;
+                    const next = { ...shiftDefs };
+                    delete next[code];
+                    touch(setShiftDefs)(next);
+                  }}
+                >
+                  Αφαίρεση
+                </button>
+              </div>
+            ))}
+
+          <NewShiftRow
+            exists={(c) => !!shiftDefs?.[c]}
+            onAdd={(code, label, start, end) =>
+              touch(setShiftDefs)({ ...shiftDefs, [code]: { label, start, end } })
+            }
+          />
+        </div>
+
+        {/* 2 — Γενικοί κανόνες */}
+        <div className="card">
+          <div className="sec-head">
+            <h2>
+              <span className="sec-num">2</span> Γενικοί κανόνες
+            </h2>
+          </div>
+          <div className="toolbar" style={{ alignItems: "flex-end", marginTop: 4 }}>
             <label className="f">
-              Εργάσιμες μέρες / εβδομάδα (πλήρους)
+              Εργάσιμες μέρες / εβδομάδα
               <select
                 value={workDays}
-                onChange={(e) => setWorkDays(Number(e.target.value))}
+                onChange={(e) => touch(setWorkDays)(Number(e.target.value))}
               >
-                <option value={6}>Εξαήμερο (6 + 1 ρεπό)</option>
-                <option value={5}>Πενθήμερο (5 + 2 ρεπό)</option>
+                <option value={6}>Εξαήμερο — 6 μέρες + 1 ρεπό</option>
+                <option value={5}>Πενθήμερο — 5 μέρες + 2 ρεπό</option>
               </select>
             </label>
             <label className="f">
-              Μέγιστα άτομα ταυτόχρονα στη βάρδια
+              Μέγιστα άτομα ταυτόχρονα
               <input
                 type="number"
                 min={1}
                 max={8}
                 value={maxPerShift}
-                onChange={(e) => setMaxPerShift(Number(e.target.value))}
+                onChange={(e) => touch(setMaxPerShift)(Number(e.target.value))}
                 style={{ width: 80 }}
               />
             </label>
           </div>
-          <p className="sub" style={{ margin: "10px 0 0" }}>
-            Οι πλήρους απασχόλησης βγαίνουν αυστηρά τόσες μέρες: όποιος
-            περισσεύει από τις ελάχιστες απαιτήσεις μπαίνει ως επιπλέον άτομο
-            σε βάρδια (μέχρι το μέγιστο), όχι σε δεύτερο ρεπό.
+          <p className="sub" style={{ margin: "12px 0 0" }}>
+            Οι πλήρους απασχόλησης βγαίνουν αυστηρά τόσες μέρες. Όποιος
+            περισσεύει από τις ελάχιστες απαιτήσεις μπαίνει ως επιπλέον άτομο σε
+            βάρδια — όχι σε δεύτερο ρεπό. Το όριο μετράει πραγματική ταυτόχρονη
+            παρουσία, μαζί με όσους ξημερώνουν από την προηγούμενη μέρα.
           </p>
         </div>
 
-        <div className="card">
-          <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Βάρδιες &amp; ωράρια</h2>
-          <p className="sub" style={{ marginBottom: 10 }}>
-            Οι βάρδιες του δικού σου καταστήματος — κωδικός, όνομα, ώρες. Το Β
-            (νυχτερινή) δεν αφαιρείται. Για βάρδια που ξημερώνει, βάλε λήξη
-            μικρότερη από την έναρξη (π.χ. 22:00–06:00).
-          </p>
-          {shiftDefs &&
-            Object.entries(shiftDefs).map(([code, def]) => (
-              <div className="rowline" key={code} style={{ padding: "8px 0" }}>
-                <strong
-                  style={{
-                    background: SHIFTS[code]?.bg,
-                    color: SHIFTS[code]?.ink,
-                    borderRadius: 7,
-                    padding: "5px 10px",
-                    minWidth: 42,
-                    textAlign: "center",
-                  }}
-                >
-                  {code}
-                </strong>
-                <label className="f">
-                  Όνομα
-                  <input
-                    type="text"
-                    value={def.label || ""}
-                    onChange={(e) =>
-                      setShiftDefs({
-                        ...shiftDefs,
-                        [code]: { ...def, label: e.target.value },
-                      })
-                    }
-                    style={{ width: 150 }}
-                  />
-                </label>
-                <label className="f">
-                  Έναρξη
-                  <input
-                    type="time"
-                    value={`${String(Math.floor(def.start % 24)).padStart(2, "0")}:${String(Math.round(((def.start % 1) || 0) * 60)).padStart(2, "0")}`}
-                    onChange={(e) => {
-                      const [h, m] = e.target.value.split(":").map(Number);
-                      setShiftDefs({
-                        ...shiftDefs,
-                        [code]: { ...def, start: h + m / 60 },
-                      });
-                    }}
-                  />
-                </label>
-                <label className="f">
-                  Λήξη
-                  <input
-                    type="time"
-                    value={`${String(Math.floor(def.end % 24)).padStart(2, "0")}:${String(Math.round(((def.end % 1) || 0) * 60)).padStart(2, "0")}`}
-                    onChange={(e) => {
-                      const [h, m] = e.target.value.split(":").map(Number);
-                      let en = h + m / 60;
-                      if (en <= def.start) en += 24;
-                      setShiftDefs({
-                        ...shiftDefs,
-                        [code]: { ...def, end: en },
-                      });
-                    }}
-                  />
-                </label>
-                {code !== "Β" && (
-                  <button
-                    className="btn danger"
-                    style={{ padding: "6px 12px" }}
-                    onClick={() => {
-                      const next = { ...shiftDefs };
-                      delete next[code];
-                      setShiftDefs(next);
-                    }}
-                  >
-                    Αφαίρεση
-                  </button>
-                )}
-              </div>
-            ))}
-          <NewShiftRow
-            onAdd={(code, label, start, end) => {
-              if (!code || shiftDefs[code] || code === "Ρ" || code === "Ο") return;
-              setShiftDefs({ ...shiftDefs, [code]: { label, start, end } });
-            }}
-          />
-          <p className="sub" style={{ margin: "8px 0 0" }}>
-            Μετά από αλλαγές εδώ, πάτα «Αποθήκευση ρυθμίσεων» κάτω και έλεγξε τα
-            άτομα ανά βάρδια στους πίνακες που ακολουθούν.
-          </p>
-        </div>
-
+        {/* 3 & 4 — Απαιτήσεις */}
         <ReqEditor
-          title="Δευτέρα – Σάββατο"
-          note="Το βασικό μοτίβο: 3×Π + 1×Π4 το πρωί, 3×Α το απόγευμα, 1×Α3 που αλλάζει τον Π4 στις 18:00 και μένει με τον βραδινό ως τις 02:00."
+          title={
+            <>
+              <span className="sec-num">3</span> Άτομα ανά βάρδια · Δευτέρα–Σάββατο
+            </>
+          }
+          note="Πόσα άτομα χρειάζεται κάθε βάρδια τις καθημερινές. Οι βάρδιες με 2+ άτομα θεωρούνται βασικές και καλύπτονται πάντα πρώτες."
           req={weekday}
-          onChange={setWeekday}
+          onChange={touch(setWeekday)}
           SHIFTS={SHIFTS}
+          maxPerShift={maxPerShift}
         />
         <ReqEditor
-          title="Κυριακή"
-          note="Την Κυριακή το Π2 (08:00–16:00) αντικαθιστά το Π4 και το Α2 (16:00–00:00) το Α3. Ο βραδινός μένει μόνος 00:00–06:00."
+          title={
+            <>
+              <span className="sec-num">4</span> Άτομα ανά βάρδια · Κυριακή
+            </>
+          }
+          note="Η Κυριακή έχει δικό της μοτίβο — συνήθως λιγότερο προσωπικό και διαφορετικά ωράρια."
           req={sunday}
-          onChange={setSunday}
+          onChange={touch(setSunday)}
           SHIFTS={SHIFTS}
+          maxPerShift={maxPerShift}
         />
 
-        <div className="toolbar">
-          <button className="btn" onClick={save} disabled={busy}>
-            Αποθήκευση ρυθμίσεων
+        <div className={"savebar" + (dirty ? " on" : "")}>
+          <span className="savebar-txt">
+            {dirty
+              ? "Έχεις αλλαγές που δεν έχουν αποθηκευτεί"
+              : msg || "Όλες οι ρυθμίσεις είναι αποθηκευμένες"}
+          </span>
+          <button className="btn" onClick={save} disabled={busy || !dirty}>
+            <IconSave /> Αποθήκευση ρυθμίσεων
           </button>
-          {msg && (
-            <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>
-              {msg}
-            </span>
-          )}
         </div>
       </div>
     </>

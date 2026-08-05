@@ -29,7 +29,9 @@ export async function POST(req) {
     min_days: Number(body.min_days) || 3,
     max_days: Number(body.max_days) || 6,
     allowed_shifts: Array.isArray(body.allowed_shifts) ? body.allowed_shifts : [],
-    night_rotation: !!body.night_rotation,
+    night_rotation: Array.isArray(body.allowed_shifts)
+      ? body.allowed_shifts.includes("Β")
+      : false,
     sort_order: Number(body.sort_order) || 100,
     fixed_days: (() => {
       const ok = ["Ρ", "Π", "Π2", "Π4", "Α", "Α2", "Α3", "Β", "Ο"];

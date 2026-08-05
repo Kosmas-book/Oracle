@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import Logo from "@/lib/Logo";
 import {
+  IconMoon,
   IconGenerate,
   IconSave,
   IconPrint,
@@ -63,10 +64,12 @@ export default function SchedulePage() {
     () => employees.filter((e) => e.active),
     [employees]
   );
+  const hasNightShift = useMemo(() => !!SHIFTS["Β"], [SHIFTS]);
   const nightCandidates = useMemo(
-    () => activeEmployees.filter((e) => e.night_rotation),
+    () => activeEmployees.filter((e) => (e.allowed_shifts || []).includes("Β")),
     [activeEmployees]
   );
+  const nameOf = (id) => employees.find((x) => x.id === id)?.name || "";
 
   useEffect(() => {
     fetch("/api/employees")
@@ -362,46 +365,6 @@ export default function SchedulePage() {
 
             <span className="sep" />
 
-            <label className="f">
-              Βραδινός Δευ–Σάβ
-              <select
-                value={nightPerson}
-                onChange={(e) => {
-                  setNightPerson(e.target.value);
-                  setDirty(true);
-                }}
-              >
-                <option value="">— κανείς —</option>
-                {nightCandidates.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="f">
-              Επόμενος βραδινός (μπαίνει Κυριακή)
-              <select
-                value={nextNight}
-                onChange={(e) => {
-                  setNextNight(e.target.value);
-                  setDirty(true);
-                }}
-              >
-                <option value="">— κανείς —</option>
-                {nightCandidates
-                  .filter((e) => e.id !== nightPerson)
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-
-            <span className="sep" />
-
             <button
               className="btn secondary"
               onClick={copyPrevious}
@@ -417,16 +380,16 @@ export default function SchedulePage() {
             <button
               className="btn amber"
               onClick={generate}
-              disabled={busy || !nightPerson || !nextNight}
+              disabled={busy || (hasNightShift && (!nightPerson || !nextNight))}
               title={
-                !nightPerson || !nextNight
+                hasNightShift && (!nightPerson || !nextNight)
                   ? "Όρισε πρώτα βραδινό και επόμενο βραδινό"
                   : ""
               }
             >
               <IconGenerate /> Δημιουργία προγράμματος
             </button>
-            {prevInfo && (
+            {false && prevInfo && (
               <span style={{ fontSize: 12.5, color: "var(--muted)", flexBasis: "100%" }}>
                 {(() => {
                   const m = new Date(week + "T00:00:00");
@@ -440,12 +403,7 @@ export default function SchedulePage() {
                 })()}
               </span>
             )}
-            {(!nightPerson || !nextNight) && (
-              <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                Για τη δημιουργία χρειάζονται βραδινός <em>και</em> επόμενος
-                βραδινός.
-              </span>
-            )}
+
             <button className="btn" onClick={save} disabled={busy || !dirty}>
               <IconSave /> Αποθήκευση
               {dirty && <span className="dot-dirty" />}
@@ -481,6 +439,81 @@ export default function SchedulePage() {
               </span>
             )}
           </div>
+
+          {hasNightShift && (
+            <div className="nightcard">
+              <div className="nc-head">
+                <IconMoon width={15} height={15} />
+                <strong>Κύκλος νυχτερινής</strong>
+                {prevInfo &&
+                  (() => {
+                    const m = new Date(week + "T00:00:00");
+                    m.setDate(m.getDate() - 7);
+                    return prevInfo.week_start === isoDate(m) ? (
+                      <span className="nc-prev">
+                        προηγούμενη: {nameOf(prevInfo.night_person) || "—"}
+                      </span>
+                    ) : (
+                      <span className="nc-prev warn-text">
+                        η προηγούμενη εβδομάδα δεν είναι αποθηκευμένη
+                      </span>
+                    );
+                  })()}
+              </div>
+
+              <div className="nc-flow">
+                <div className={"nc-slot" + (nightPerson ? " filled" : "")}>
+                  <span className="nc-label">Δευ – Σάβ</span>
+                  <select
+                    value={nightPerson}
+                    onChange={(e) => {
+                      setNightPerson(e.target.value);
+                      setDirty(true);
+                    }}
+                  >
+                    <option value="">— διάλεξε —</option>
+                    {nightCandidates.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="nc-note">6 νύχτες, ρεπό Κυριακή</span>
+                </div>
+
+                <IconNext width={18} height={18} />
+
+                <div className={"nc-slot" + (nextNight ? " filled" : "")}>
+                  <span className="nc-label">Κυριακή κι έπειτα</span>
+                  <select
+                    value={nextNight}
+                    onChange={(e) => {
+                      setNextNight(e.target.value);
+                      setDirty(true);
+                    }}
+                  >
+                    <option value="">— διάλεξε —</option>
+                    {nightCandidates
+                      .filter((e) => e.id !== nightPerson)
+                      .map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="nc-note">ρεπό Σάββατο, μπαίνει Κυριακή</span>
+                </div>
+              </div>
+
+              {!nightCandidates.length && (
+                <div className="nc-empty">
+                  Κανένας υπάλληλος δεν έχει τη νυχτερινή (Β) στις βάρδιές του.
+                  Πήγαινε στο «Προσωπικό» και τσέκαρε το <strong>Β</strong> σε
+                  όσους κάνουν νύχτες.
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ marginTop: 14 }}>
             <div className="palette">

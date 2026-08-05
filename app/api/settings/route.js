@@ -46,8 +46,6 @@ export async function POST(req) {
         if (en <= st) en += 24; // βάρδια που ξημερώνει
         out[c] = { label: String(def.label || c).slice(0, 30), start: st, end: en };
       }
-      // Το Β (νυχτερινή) πρέπει πάντα να υπάρχει — αν λείπει, μπαίνει η προεπιλογή.
-      if (!out["Β"]) out["Β"] = { label: "Βράδυ", start: 22, end: 30 };
       return out;
     })(),
     updated_at: new Date().toISOString(),

@@ -22,7 +22,6 @@ const EMPTY = {
   min_days: 3,
   max_days: 6,
   allowed_shifts: ["Π", "Π4", "Α", "Α3"],
-  night_rotation: false,
   sort_order: 100,
   fixed_days: {},
 };
@@ -138,16 +137,6 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
             </label>
           ))}
         </span>
-      </label>
-      <label className="f">
-        Εναλλαγή βραδινού
-        <select
-          value={e.night_rotation ? "1" : "0"}
-          onChange={(ev) => setE({ ...e, night_rotation: ev.target.value === "1" })}
-        >
-          <option value="0">Όχι</option>
-          <option value="1">Ναι</option>
-        </select>
       </label>
       <label className="f">
         Σταθερές μέρες (προαιρετικό)
@@ -313,9 +302,9 @@ export default function EmployeesPage() {
                     {e.employment_type === "part" && (
                       <span className="pill">part-time {e.min_days}–{e.max_days}</span>
                     )}
-                    {e.night_rotation && (
-                      <span className="pill" title="Μπαίνει στην εναλλαγή βραδινού">
-                        <IconMoon width={11} height={11} /> βραδινός
+                    {(e.allowed_shifts || []).includes("Β") && (
+                      <span className="pill" title="Μπορεί να μπει στη νυχτερινή">
+                        <IconMoon width={11} height={11} /> νυχτερινή
                       </span>
                     )}
                   </div>

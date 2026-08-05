@@ -24,11 +24,7 @@ export async function POST(req) {
   })();
   if (!week_start)
     return NextResponse.json({ error: "missing week_start" }, { status: 400 });
-  if (!night_person || !next_night_person)
-    return NextResponse.json(
-      { error: "Όρισε βραδινό Δευ–Σάβ και επόμενο βραδινό πριν τη δημιουργία." },
-      { status: 400 }
-    );
+
 
   const sb = supabaseAdmin();
   const [emp, set, prev] = await Promise.all([
@@ -66,6 +62,15 @@ export async function POST(req) {
       });
     }
   }
+
+  const shiftsCfg = set.data?.shifts;
+  const hasNightShift =
+    !shiftsCfg || !Object.keys(shiftsCfg).length ? true : !!shiftsCfg["Β"];
+  if (hasNightShift && (!night_person || !next_night_person))
+    return NextResponse.json(
+      { error: "Όρισε βραδινό Δευ–Σάβ και επόμενο βραδινό πριν τη δημιουργία." },
+      { status: 400 }
+    );
 
   const settings = set.data || {
     weekday_req: { "Π": 3, "Α": 3, "Π4": 1, "Α3": 1 },
