@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import Logo from "@/lib/Logo";
+import { validateGrid } from "@/lib/validate";
 import {
   IconMoon,
   IconGenerate,
@@ -71,6 +72,20 @@ export default function SchedulePage() {
   );
   const nameOf = (id) => employees.find((x) => x.id === id)?.name || "";
 
+  // Ζωντανός έλεγχος: τρέχει σε ΚΑΘΕ αλλαγή, όχι μόνο στη δημιουργία.
+  const [settingsCfg, setSettingsCfg] = useState(null);
+  const check = useMemo(() => {
+    if (!settingsCfg || !employees.length || !effectiveDayReq) return null;
+    return validateGrid({
+      grid,
+      employees,
+      dayReq: effectiveDayReq,
+      shifts: stationShifts,
+      maxPerShift: settingsCfg.max_per_shift || 4,
+      workDays: settingsCfg.work_days || 6,
+    });
+  }, [grid, employees, effectiveDayReq, stationShifts, settingsCfg]);
+
   useEffect(() => {
     fetch("/api/employees")
       .then((r) => r.json())
@@ -79,6 +94,7 @@ export default function SchedulePage() {
       .then((r) => r.json())
       .then((d) => {
         setStationShifts(d.settings?.shifts || null);
+        setSettingsCfg(d.settings || {});
         setBaseReqs({
           weekday: d.settings?.weekday_req || {},
           sunday: d.settings?.sunday_req || {},
@@ -614,14 +630,51 @@ export default function SchedulePage() {
             </div>
           )}
 
-          {warnings.length > 0 && (
-            <div className="warn">
-              <strong><IconWarn width={15} height={15} /> Προσοχή — θέλει χειροκίνητο έλεγχο</strong>
-              <ul>
-                {warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
+          {(check?.groups?.length > 0 || warnings.length > 0) && (
+            <div className={"checks" + (check?.errors ? " has-error" : "")}>
+              <div className="checks-head">
+                <IconWarn width={15} height={15} />
+                <strong>Έλεγχος προγράμματος</strong>
+                {check?.errors > 0 && (
+                  <span className="chk-badge err">{check.errors} σοβαρά</span>
+                )}
+                {check?.warnings > 0 && (
+                  <span className="chk-badge warnb">{check.warnings} προσοχή</span>
+                )}
+              </div>
+
+              {check?.groups.map((g) => (
+                <div className={"chk-group " + g.level} key={g.key}>
+                  <div className="chk-title">{g.title}</div>
+                  <ul>
+                    {g.items.slice(0, 8).map((it, i) => (
+                      <li key={i}>{it}</li>
+                    ))}
+                    {g.items.length > 8 && (
+                      <li className="chk-more">…και {g.items.length - 8} ακόμη</li>
+                    )}
+                  </ul>
+                </div>
+              ))}
+
+              {warnings.length > 0 && (
+                <div className="chk-group note">
+                  <div className="chk-title">Σημειώσεις από την τελευταία δημιουργία</div>
+                  <ul>
+                    {warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {check && !check.groups.length && warnings.length === 0 && (
+            <div className="checks ok">
+              <div className="checks-head">
+                <strong>✓ Το πρόγραμμα δεν έχει προβλήματα</strong>
+              </div>
             </div>
           )}
         </div>

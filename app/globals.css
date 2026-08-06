@@ -296,6 +296,55 @@ table.sched td.name small { color: var(--muted); font-weight: 500; }
 }
 .cell:hover { outline: 2px dashed rgba(0,0,0,0.35); outline-offset: -3px; }
 
+/* Πάνελ ελέγχου προγράμματος */
+.checks {
+  margin-top: 14px;
+  border: 1px solid #e8cd96;
+  border-left: 4px solid var(--amber);
+  border-radius: 11px;
+  background: #fdf9f0;
+  padding: 12px 15px;
+}
+.checks.has-error {
+  border-color: #e2b0a5;
+  border-left-color: var(--danger);
+  background: #fdf5f3;
+}
+.checks.ok {
+  border-color: #b9dcc7;
+  border-left-color: var(--ok);
+  background: #f4faf6;
+}
+.checks-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.checks.ok .checks-head { margin-bottom: 0; color: var(--ok); }
+.chk-badge {
+  border-radius: 20px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.chk-badge.err { background: #f6ded8; color: var(--danger); }
+.chk-badge.warnb { background: #f7ead0; color: #8a6a1c; }
+.chk-group { margin-top: 9px; }
+.chk-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--danger);
+  margin-bottom: 2px;
+}
+.chk-group.warn .chk-title { color: #8a6a1c; }
+.chk-group.note .chk-title { color: var(--muted); }
+.chk-group ul { margin: 0; padding-left: 19px; }
+.chk-group li { font-size: 12.5px; line-height: 1.65; color: #3c4650; }
+.chk-more { color: var(--muted); font-style: italic; }
+
 .warn {
   background: #fdf6ea;
   border: 1px solid #e8cd96;
