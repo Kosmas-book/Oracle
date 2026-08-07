@@ -21,7 +21,7 @@ html, body {
   padding: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: "Commissioner", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-commissioner), "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
 }
 
@@ -172,6 +172,211 @@ select:focus, input:focus {
 }
 label.f { font-size: 12px; letter-spacing: 0.01em; }
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 500; }
+
+/* Καρτέλες σελίδας */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--line);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.tab {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-family: inherit;
+}
+.tab.on { color: var(--petrol); border-bottom-color: var(--petrol); }
+.tab:hover { color: var(--ink); }
+
+.confdot {
+  display: inline-block;
+  min-width: 15px;
+  border-radius: 20px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 14px;
+  margin-top: 2px;
+}
+.okbox {
+  background: #f2f8f4;
+  border: 1px solid #bcd9c7;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.preset { display: inline-flex; align-items: center; }
+.preset-x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.preset-x:hover { color: var(--danger); }
+.row-excluded { opacity: 0.5; }
+.row-excluded td.name { text-decoration: line-through; }
+
+/* Μενού δευτερευουσών ενεργειών */
+.morewrap { position: relative; display: inline-block; }
+.moremenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  box-shadow: 0 8px 26px rgba(16, 57, 74, 0.15);
+  padding: 6px;
+  min-width: 232px;
+  z-index: 30;
+}
+.moremenu button, .moremenu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.moremenu button:hover { background: #f3f6f7; }
+.moremenu button:disabled { opacity: 0.45; cursor: default; }
+.moremenu hr { border: none; border-top: 1px solid var(--line-soft); margin: 5px 2px; }
+
+/* Κάτω πλοήγηση κινητού */
+.bottomnav { display: none; }
+@media (max-width: 700px) {
+  .bottomnav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-top: 1px solid var(--line);
+    z-index: 40;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .bottomnav a {
+    flex: 1;
+    text-align: center;
+    padding: 9px 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .bottomnav a.on { color: var(--petrol); }
+  .bottomnav .bn-ico { display: block; font-size: 17px; line-height: 1.25; }
+  .wrap { padding-bottom: 76px; }
+  .nav a.link { display: none; }
+}
+@media print { .bottomnav { display: none !important; } }
+
+/* Επισήμανση προβληματικών κελιών */
+td.cell-error { box-shadow: inset 0 0 0 2.5px var(--danger); }
+td.cell-forbidden { box-shadow: inset 0 0 0 2.5px #d98324; }
+td.cell-fixed { box-shadow: inset 0 0 0 2.5px #7b4fa8; }
+td.cell-night { box-shadow: inset 0 0 0 2.5px #3b4c86; }
+td.cell-info { box-shadow: inset 0 0 0 1.5px rgba(16,57,74,0.35); }
+.cmark { font-size: 9px; margin-left: 2px; opacity: 0.75; }
+.inactive-tag {
+  background: #efece4;
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 5px;
+}
+
+/* Ρητή κατάσταση επεξεργασίας */
+.editbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fdf6ea;
+  border: 1px solid #e8cd96;
+  border-radius: 10px;
+  padding: 9px 13px;
+}
+.editnow { font-size: 13.5px; color: #6b551f; font-weight: 600; }
+.editnow strong { color: var(--ink); }
+
+/* Modal επιβεβαίωσης αποθήκευσης */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 57, 74, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 18px;
+}
+.modal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 82vh;
+  overflow: auto;
+  box-shadow: 0 18px 50px rgba(16, 57, 74, 0.25);
+}
+.modal h3 { margin: 0 0 12px; font-size: 17.5px; }
+.modal-body { max-height: 46vh; overflow: auto; }
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.modal-note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+
+/* Σύνοψη ωρών ανά εργαζόμενο */
+.sumcell {
+  padding: 4px 8px !important;
+  white-space: nowrap;
+  text-align: right !important;
+}
+.sum-days {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--petrol);
+}
+.sum-days.bad { color: var(--danger); }
+.sum-hours {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.tgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 9px;
+}
+.tgrid .req-label { font-size: 13px; font-weight: 600; gap: 6px; }
 
 /* Κάρτα κύκλου νυχτερινής */
 .nightcard {
@@ -558,6 +763,8 @@ body:has(.login-box) {
   border-bottom: 1px solid var(--line-soft);
 }
 .emp-card:last-child { border-bottom: none; }
+.emp-card.inactive { opacity: 0.62; }
+.emp-card.inactive .emp-name { text-decoration: line-through; text-decoration-thickness: 1px; }
 .emp-move { display: flex; flex-direction: column; gap: 3px; }
 .emp-arrow {
   border: 1px solid var(--line);

@@ -27,21 +27,27 @@ export async function POST(req) {
 
 
   const sb = supabaseAdmin();
-  const [emp, set, prev] = await Promise.all([
+  const [emp, set, prev, wt] = await Promise.all([
     sb
       .from("employees")
       .select("*")
       .eq("station_id", st.id)
+      .is("deactivated_at", null)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
     sb.from("settings").select("*").eq("station_id", st.id).maybeSingle(),
     sb
       .from("schedules")
-      .select("week_start,night_person,grid")
+      .select("week_start,night_person,next_night_person,actual_night_person,grid")
       .eq("station_id", st.id)
       .lt("week_start", week_start)
       .order("week_start", { ascending: false })
       .limit(6),
+    sb
+      .from("weekly_employee_targets")
+      .select("employee_id,exact_days")
+      .eq("station_id", st.id)
+      .eq("week_start", week_start),
   ]);
   if (emp.error)
     return NextResponse.json({ error: emp.error.message }, { status: 500 });
@@ -93,7 +99,23 @@ export async function POST(req) {
     }
   }
 
-  const { grid, warnings } = generateWeek({
+  // 2A: τα τρέχοντα targets του UI είναι source of truth για ΑΥΤΟ το Generate.
+  // Fallback στη βάση για όποιον δεν περιλαμβάνεται στο request.
+  const weeklyTargets = {};
+  for (const r of wt.data || []) weeklyTargets[r.employee_id] = r.exact_days;
+  const reqTargets = body.weekly_targets;
+  if (reqTargets && typeof reqTargets === "object") {
+    for (const [empId, v] of Object.entries(reqTargets)) {
+      if (v === "" || v == null) {
+        delete weeklyTargets[empId];
+        continue;
+      }
+      const n = Math.round(Number(v));
+      if (Number.isFinite(n) && n >= 0 && n <= 7) weeklyTargets[empId] = n;
+    }
+  }
+
+  const { grid, warnings, nightExceptions, nightConflicts } = generateWeek({
     employees: emp.data,
     weekdayReq: settings.weekday_req,
     sundayReq: settings.sunday_req,
@@ -104,11 +126,15 @@ export async function POST(req) {
     shifts: settings.shifts || null,
     nightPersonId: night_person || null,
     nextNightPersonId: next_night_person || null,
+    // 1D: ο PREVIOUS holder είναι αυτός που ΟΛΟΚΛΗΡΩΣΕ το προηγούμενο μπλοκ
+    // (δηλαδή ο night_person της περασμένης εβδομάδας) — παίρνει Ρ Δευτέρας.
     prevNightPersonId: adjacent ? prevWeek?.night_person || null : null,
     history,
     locked: locked || {},
     prevSunday,
     dayReq,
+    leaveReplacesRest: settings.leave_replaces_rest !== false,
+    weeklyTargets,
   });
 
   if (!adjacent) {
@@ -117,5 +143,5 @@ export async function POST(req) {
     );
   }
 
-  return NextResponse.json({ grid, warnings });
+  return NextResponse.json({ grid, warnings, nightExceptions, nightConflicts });
 }

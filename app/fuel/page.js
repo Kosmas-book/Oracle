@@ -2,18 +2,26 @@
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import { isoDate, addDays, fmtShort, DAY_NAMES } from "@/lib/shifts";
-import { IconEmpty, IconUpload, IconSave } from "@/lib/Icons";
+import { IconEmpty, IconUpload, IconSave, IconPlus, IconWarn } from "@/lib/Icons";
 import * as XLSX from "xlsx";
+import {
+  FUEL_KEYS,
+  FUEL_LABELS,
+  forecast as calcForecast,
+  accuracyPerFuel,
+  confidenceOf,
+  requiredLiters,
+  outliers,
+} from "@/lib/fuelCalc";
 
-const FUELS = [
-  { key: "unl100", label: "Αμόλυβδη 100" },
-  { key: "unl98", label: "Αμόλυβδη 98" },
-  { key: "unl95", label: "Αμόλυβδη 95" },
-  { key: "diesel", label: "Diesel" },
-  { key: "diesel_avio", label: "Diesel Avio" },
+const FUELS = FUEL_KEYS.map((key) => ({ key, label: FUEL_LABELS[key] }));
+const TABS = [
+  { id: "forecast", label: "Πρόβλεψη" },
+  { id: "order", label: "Απαιτούμενα λίτρα" },
+  { id: "import", label: "Εισαγωγή αρχείου" },
+  { id: "history", label: "Ιστορικό" },
 ];
 
-// Ημερομηνία από Excel: σειριακός αριθμός ή κείμενο (dd/mm/yyyy, yyyy-mm-dd).
 function excelToISO(v) {
   if (v == null || v === "") return null;
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -32,7 +40,6 @@ function excelToISO(v) {
   return null;
 }
 
-// Αριθμός με ελληνική μορφή (1.234,56) ή αγγλική (1,234.56 / 1234.56).
 function toNum(v) {
   if (v == null || v === "") return null;
   if (typeof v === "number") return v;
@@ -43,6 +50,13 @@ function toNum(v) {
   return isNaN(n) ? null : n;
 }
 
+const CONF_STYLE = {
+  high: { bg: "#e8f3ec", ink: "#2f7d5c" },
+  medium: { bg: "#fdf3e3", ink: "#8a6a1c" },
+  low: { bg: "#fdeeea", ink: "#b3402e" },
+  none: { bg: "#efece4", ink: "#6d7683" },
+};
+
 export default function FuelPage() {
   const [entries, setEntries] = useState([]);
   const [date, setDate] = useState(() => isoDate(new Date()));
@@ -50,25 +64,64 @@ export default function FuelPage() {
   const [notes, setNotes] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("forecast");
 
-  // Εισαγωγή Excel
   const [wb, setWb] = useState(null);
   const [sheetName, setSheetName] = useState("");
   const [headerRow, setHeaderRow] = useState(0);
   const [colCounts, setColCounts] = useState([]);
-  const [sheetRows, setSheetRows] = useState(null); // array of arrays
+  const [sheetRows, setSheetRows] = useState(null);
   const [mapping, setMapping] = useState({});
   const [importMsg, setImportMsg] = useState("");
-  const [weights, setWeights] = useState({}); // index ημέρας -> ποσοστό (0..1)
   const [importing, setImporting] = useState(false);
   const [showMapping, setShowMapping] = useState(false);
+
+  const [weights, setWeights] = useState({});
+  const [presets, setPresets] = useState([]);
+  const [presetName, setPresetName] = useState("");
 
   function load() {
     fetch("/api/fuel")
       .then((r) => r.json())
       .then((d) => setEntries(d.entries || []));
   }
-  useEffect(load, []);
+  function loadPresets() {
+    fetch("/api/fuel-presets")
+      .then((r) => r.json())
+      .then((d) => setPresets(d.presets || []));
+  }
+  useEffect(() => {
+    load();
+    loadPresets();
+  }, []);
+
+  const fmt = (n) => (n == null ? "—" : Math.round(n).toLocaleString("el-GR"));
+
+  const forecast = useMemo(() => {
+    const usable = entries.filter((e) => !e.excluded);
+    if (usable.length < 14) return null;
+    const days = Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
+    const perFuel = calcForecast(entries, days);
+    const asc = [...usable].sort((a, b) => (a.entry_date < b.entry_date ? -1 : 1));
+    return {
+      days,
+      perFuel,
+      count: asc.length,
+      from: asc[0].entry_date,
+      to: asc[asc.length - 1].entry_date,
+    };
+  }, [entries]);
+
+  const acc = useMemo(() => accuracyPerFuel(entries), [entries]);
+  const hasAcc = useMemo(() => Object.values(acc).some(Boolean), [acc]);
+  const warnOutliers = useMemo(() => {
+    const liters = {};
+    for (const f of FUELS) {
+      const v = toNum(vals[f.key]);
+      if (v != null) liters[f.key] = v;
+    }
+    return outliers(liters, entries);
+  }, [vals, entries]);
 
   async function save() {
     setBusy(true);
@@ -89,7 +142,10 @@ export default function FuelPage() {
       setVals({});
       setNotes("");
       load();
-    } else setMsg("Σφάλμα καταχώρησης");
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setMsg("Σφάλμα: " + (d.error || "αποτυχία καταχώρησης"));
+    }
   }
 
   async function del(d) {
@@ -98,7 +154,42 @@ export default function FuelPage() {
     load();
   }
 
-  // Βρίσκει τη γραμμή κεφαλίδων: αυτή με τα περισσότερα ονόματα καυσίμων.
+  async function toggleExcluded(entry) {
+    await fetch("/api/fuel", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entry_date: entry.entry_date,
+        excluded: !entry.excluded,
+      }),
+    });
+    load();
+  }
+
+  async function savePreset() {
+    if (!presetName.trim()) return;
+    await fetch("/api/fuel-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: presetName, weights }),
+    });
+    setPresetName("");
+    loadPresets();
+  }
+  async function delPreset(id) {
+    if (!confirm("Διαγραφή preset;")) return;
+    await fetch(`/api/fuel-presets?id=${id}`, { method: "DELETE" });
+    loadPresets();
+  }
+
+  function dateCount(rows, hr, col) {
+    let n = 0;
+    for (let i = hr + 1; i < rows.length; i++) {
+      if (excelToISO((rows[i] || [])[col]) ) n++;
+    }
+    return n;
+  }
+
   function detectHeaderRow(rows) {
     let best = 0;
     let bestScore = 0;
@@ -116,7 +207,6 @@ export default function FuelPage() {
     return best;
   }
 
-  // Πόσες αριθμητικές τιμές έχει κάθε στήλη στις γραμμές δεδομένων.
   function columnCounts(rows, hr) {
     const counts = [];
     for (let i = hr + 1; i < rows.length; i++) {
@@ -128,8 +218,6 @@ export default function FuelPage() {
     return counts;
   }
 
-  // Αντιστοίχιση από κεφαλίδες ΚΑΙ από το πού υπάρχουν πραγματικά νούμερα —
-  // σε αυτά τα φύλλα η ίδια βενζίνη μπορεί να αλλάζει στήλη ανά μήνα.
   function guessMapping(head, counts) {
     const pats = {
       unl100: /100|ultimate|racing|speed/,
@@ -173,15 +261,6 @@ export default function FuelPage() {
       }
     }
     return g;
-  }
-
-  // Πόσες τιμές της στήλης μοιάζουν με ημερομηνίες.
-  function dateCount(rows, hr, col) {
-    let n = 0;
-    for (let i = hr + 1; i < rows.length; i++) {
-      if (excelToISO((rows[i] || [])[col]) ) n++;
-    }
-    return n;
   }
 
   function loadSheet(book, name, hrow) {
@@ -266,593 +345,507 @@ export default function FuelPage() {
     } else setImportMsg("Σφάλμα: " + (d.error || res.status));
   }
 
-  // Πρόβλεψη: μέσος όρος ανά ημέρα εβδομάδας (οι 4 πιο πρόσφατες εμφανίσεις).
-  const forecast = useMemo(() => {
-    if (entries.length < 14) return null;
-    const sorted = [...entries].sort((a, b) =>
-      a.entry_date < b.entry_date ? -1 : 1
-    );
-    const byWeekday = {}; // wd -> fuel -> [τιμές, πιο πρόσφατες πρώτα]
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      const e = sorted[i];
-      const wd = (new Date(e.entry_date + "T00:00:00").getDay() + 6) % 7;
-      byWeekday[wd] = byWeekday[wd] || {};
-      for (const f of FUELS) {
-        const v = e.liters?.[f.key];
-        if (v == null) continue;
-        byWeekday[wd][f.key] = byWeekday[wd][f.key] || [];
-        if (byWeekday[wd][f.key].length < 4) byWeekday[wd][f.key].push(v);
-      }
-    }
-    // Ξεκινάμε από ΣΗΜΕΡΑ: συχνά παραγγέλνεις μέσα στη μέρα για το υπόλοιπό της.
-    const days = Array.from({ length: 8 }, (_, i) => addDays(new Date(), i));
-    const perFuel = {};
-    for (const f of FUELS) {
-      perFuel[f.key] = days.map((d) => {
-        const wd = (d.getDay() + 6) % 7;
-        const arr = byWeekday[wd]?.[f.key];
-        if (!arr || !arr.length) return null;
-        return arr.reduce((s, x) => s + x, 0) / arr.length;
-      });
-    }
-    return { days, perFuel, count: sorted.length, from: sorted[0].entry_date, to: sorted[sorted.length - 1].entry_date };
-  }, [entries]);
-
-  // Ακρίβεια: για κάθε μία από τις τελευταίες μέρες, τι θα προέβλεπε το μοντέλο
-  // (μέσος των 4 προηγούμενων ίδιων ημερών) σε σχέση με το τι πούλησες τελικά.
-  const accuracy = useMemo(() => {
-    if (entries.length < 21) return null;
-    const sorted = [...entries].sort((a, b) => (a.entry_date < b.entry_date ? -1 : 1));
-    let sumAbs = 0;
-    let sumSigned = 0;
-    let n = 0;
-    const rows = [];
-    for (let i = sorted.length - 1; i >= 0 && rows.length < 10; i--) {
-      const cur = sorted[i];
-      const wd = (new Date(cur.entry_date + "T00:00:00").getDay() + 6) % 7;
-      const prev = [];
-      for (let j = i - 1; j >= 0 && prev.length < 4; j--) {
-        const w2 = (new Date(sorted[j].entry_date + "T00:00:00").getDay() + 6) % 7;
-        if (w2 === wd) prev.push(sorted[j]);
-      }
-      if (prev.length < 3) continue;
-      const tot = (e) => FUELS.reduce((s2, f) => s2 + (e.liters?.[f.key] || 0), 0);
-      const actual = tot(cur);
-      if (!actual) continue;
-      const pred = prev.reduce((s2, e) => s2 + tot(e), 0) / prev.length;
-      const dev = ((actual - pred) / pred) * 100;
-      sumAbs += Math.abs(dev);
-      sumSigned += dev;
-      n++;
-      rows.push({ date: cur.entry_date, wd, pred, actual, dev });
-    }
-    if (!n) return null;
-    return { rows, mape: sumAbs / n, bias: sumSigned / n, n };
-  }, [entries]);
-
-  const fmt = (n) =>
-    n == null ? "—" : Math.round(n).toLocaleString("el-GR");
+  const required = requiredLiters(forecast?.perFuel || {}, weights);
+  const anyWeight = Object.values(weights).some((w) => w > 0);
 
   return (
     <>
       <Nav />
       <div className="wrap">
-        <h1>Πωλήσεις καυσίμων</h1>
+        <h1>Καύσιμα</h1>
         <p className="sub">
-          Καταχώρηση λίτρων ανά μέρα — χειροκίνητα ή με εισαγωγή Excel — και
-          πρόβλεψη ανά ημέρα εβδομάδας για την παραγγελία.
+          Ημερήσιες πωλήσεις, πρόβλεψη ανά ημέρα εβδομάδας και υπολογισμός
+          απαιτούμενων λίτρων για κάλυψη.
         </p>
 
-        {forecast && (
-          <div className="card">
-            <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>
-              Πρόβλεψη — από σήμερα και για 7 μέρες
-            </h2>
-            <p className="sub" style={{ marginBottom: 10 }}>
-              Μέσος όρος των 4 πιο πρόσφατων ίδιων ημερών (π.χ. οι 4 τελευταίες
-              Παρασκευές). Δεδομένα: {forecast.count} μέρες ({forecast.from} έως{" "}
-              {forecast.to}).
-            </p>
-            <div className="gridwrap">
-              <table className="sched">
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", paddingLeft: 10 }}>
-                      Καύσιμο
-                    </th>
-                    {forecast.days.map((d, i) => (
-                      <th key={i} style={i === 0 ? { background: "#FFE099" } : undefined}>
-                        {DAY_NAMES[(d.getDay() + 6) % 7]}
-                        <div className="d">{i === 0 ? "σήμερα" : fmtShort(d)}</div>
-                      </th>
-                    ))}
-                    <th>Σύνολο (lt)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {FUELS.map((f) => {
-                    const row = forecast.perFuel[f.key];
-                    const total = row.reduce((s, x) => s + (x || 0), 0);
-                    if (!total) return null;
-                    return (
-                      <tr key={f.key}>
-                        <td className="name">{f.label}</td>
-                        {row.map((v, i) => (
-                          <td key={i} style={{ padding: "6px 8px" }}>
-                            {fmt(v)}
-                          </td>
-                        ))}
-                        <td style={{ padding: "6px 8px", fontWeight: 700 }}>
-                          {fmt(total)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr>
-                    <td className="name" style={{ background: "#f0eee6" }}>
-                      <strong>Σύνολο ημέρας</strong>
-                    </td>
-                    {forecast.days.map((_, i) => {
-                      const t = FUELS.reduce(
-                        (sum, f) => sum + (forecast.perFuel[f.key][i] || 0),
-                        0
-                      );
-                      return (
-                        <td
-                          key={i}
-                          style={{ padding: "6px 8px", fontWeight: 700, background: "#f0eee6" }}
-                        >
-                          {fmt(t)}
-                        </td>
-                      );
-                    })}
-                    <td style={{ padding: "6px 8px", fontWeight: 800, background: "#f0eee6" }}>
-                      {fmt(
-                        FUELS.reduce(
-                          (sum, f) =>
-                            sum +
-                            forecast.perFuel[f.key].reduce((a, b) => a + (b || 0), 0),
-                          0
-                        )
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="sub" style={{ margin: "10px 0 0" }}>
-              Η γραμμή «Σύνολο ημέρας» αντιστοιχεί στη στήλη «Σύνολο (χωρίς Δ.Θ.)»
-              του Excel σου.
-            </p>
+        <div className="tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={"tab" + (tab === t.id ? " on" : "")}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-            <div style={{ marginTop: 18, borderTop: "2px solid var(--line)", paddingTop: 14 }}>
-              <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Υπολογισμός παραγγελίας</h2>
-              <p className="sub" style={{ marginBottom: 10 }}>
-                Διάλεξε ποιες μέρες καλύπτει η παραγγελία. Αν παραγγέλνεις
-                σήμερα το μεσημέρι και το καύσιμο έρχεται αύριο: σήμερα 50%,
-                αύριο 100%.
-              </p>
-              <div className="toolbar" style={{ alignItems: "flex-end", marginBottom: 12 }}>
-                {forecast.days.map((d, i) => (
-                  <label className="f" key={i}>
-                    {DAY_NAMES[(d.getDay() + 6) % 7]}{" "}
-                    {i === 0 ? "(σήμερα)" : fmtShort(d)}
-                    <select
-                      value={weights[i] ?? 0}
-                      onChange={(e) =>
-                        setWeights({ ...weights, [i]: Number(e.target.value) })
-                      }
-                      style={{ width: 92 }}
-                    >
-                      <option value={0}>—</option>
-                      <option value={0.25}>25%</option>
-                      <option value={0.5}>50%</option>
-                      <option value={0.75}>75%</option>
-                      <option value={1}>100%</option>
-                    </select>
-                  </label>
-                ))}
-                <button
-                  className="btn secondary"
-                  onClick={() => setWeights({})}
-                  style={{ marginBottom: 2 }}
-                >
-                  Καθαρισμός
-                </button>
-              </div>
-
-              {Object.values(weights).some((w) => w > 0) ? (
+        {/* ---------------- ΠΡΟΒΛΕΨΗ ---------------- */}
+        {tab === "forecast" && (
+          <>
+            {forecast ? (
+              <div className="card">
+                <h2>Πρόβλεψη — από σήμερα και για 7 μέρες</h2>
+                <p className="sub" style={{ marginBottom: 10 }}>
+                  Μέσος όρος των έως 4 πιο πρόσφατων ίδιων ημερών. Δεδομένα:{" "}
+                  {forecast.count} μέρες ({forecast.from} έως {forecast.to}).
+                </p>
                 <div className="gridwrap">
                   <table className="sched">
                     <thead>
                       <tr>
                         <th style={{ textAlign: "left", paddingLeft: 10 }}>Καύσιμο</th>
-                        <th>Λίτρα προς παραγγελία</th>
+                        {forecast.days.map((d, i) => (
+                          <th key={i} style={i === 0 ? { background: "#FFE099", color: "#5C4300" } : undefined}>
+                            {DAY_NAMES[(d.getDay() + 6) % 7]}
+                            <div className="d">{i === 0 ? "σήμερα" : fmtShort(d)}</div>
+                          </th>
+                        ))}
+                        <th>Σύνολο</th>
                       </tr>
                     </thead>
                     <tbody>
                       {FUELS.map((f) => {
-                        const t = forecast.perFuel[f.key].reduce(
-                          (sum, v, i) => sum + (v || 0) * (weights[i] || 0),
-                          0
-                        );
-                        if (!t) return null;
+                        const row = forecast.perFuel[f.key] || [];
+                        const total = row.reduce((s, c) => s + (c?.value || 0), 0);
+                        if (!total) return null;
                         return (
                           <tr key={f.key}>
                             <td className="name">{f.label}</td>
-                            <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 16 }}>
-                              {fmt(t)}
-                            </td>
+                            {row.map((c, i) => {
+                              const cf = confidenceOf(c?.n || 0);
+                              const st = CONF_STYLE[cf.level];
+                              return (
+                                <td key={i} style={{ padding: "5px 8px" }}>
+                                  <div>{fmt(c?.value)}</div>
+                                  <span
+                                    className="confdot"
+                                    style={{ background: st.bg, color: st.ink }}
+                                    title={`${cf.label} εμπιστοσύνη — ${cf.days} αντίστοιχες ημέρες`}
+                                  >
+                                    {cf.days}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}>{fmt(total)}</td>
                           </tr>
                         );
                       })}
-                      <tr>
-                        <td className="name" style={{ background: "#f0eee6" }}>
-                          <strong>Σύνολο</strong>
-                        </td>
-                        <td style={{ padding: "8px 10px", fontWeight: 800, fontSize: 16, background: "#f0eee6" }}>
-                          {fmt(
-                            FUELS.reduce(
-                              (sum, f) =>
-                                sum +
-                                forecast.perFuel[f.key].reduce(
-                                  (a, v, i) => a + (v || 0) * (weights[i] || 0),
-                                  0
-                                ),
-                              0
-                            )
-                          )}
-                        </td>
-                      </tr>
                     </tbody>
                   </table>
-                  <p className="sub" style={{ margin: "10px 0 0" }}>
-                    Καλύπτει:{" "}
-                    {forecast.days
-                      .map((d, i) =>
-                        weights[i]
-                          ? `${DAY_NAMES[(d.getDay() + 6) % 7]} ${Math.round(weights[i] * 100)}%`
-                          : null
-                      )
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
                 </div>
-              ) : (
-                <p className="sub">Διάλεξε ποσοστό σε τουλάχιστον μία μέρα.</p>
-              )}
-            </div>
-          </div>
+                <p className="sub" style={{ margin: "10px 0 0" }}>
+                  Ο μικρός αριθμός κάτω από κάθε τιμή δείχνει σε πόσες αντίστοιχες
+                  ημέρες βασίζεται: <strong>4+</strong> υψηλή, <strong>3</strong>{" "}
+                  μέτρια, <strong>1–2</strong> χαμηλή εμπιστοσύνη.
+                </p>
+              </div>
+            ) : (
+              <div className="card">
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <IconUpload width={20} height={20} />
+                  <div>
+                    <strong>Η πρόβλεψη ενεργοποιείται με 14 μέρες δεδομένων</strong>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>
+                      Έχεις {entries.filter((e) => !e.excluded).length} — ανέβασε ένα
+                      Excel μήνα από την καρτέλα «Εισαγωγή αρχείου».
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {hasAcc && (
+              <div className="card">
+                <h2>Ακρίβεια πρόβλεψης ανά καύσιμο</h2>
+                <p className="sub" style={{ marginBottom: 10 }}>
+                  Κάθε καύσιμο μετριέται ξεχωριστά — ένα συνολικό νούμερο θα
+                  έκρυβε αντίθετα λάθη μεταξύ καυσίμων.
+                </p>
+                <div className="gridwrap">
+                  <table className="sched">
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", paddingLeft: 10 }}>Καύσιμο</th>
+                        <th>Μέση απόκλιση</th>
+                        <th>Τάση</th>
+                        <th>Ημέρες</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {FUELS.map((f) => {
+                        const a = acc[f.key];
+                        if (!a) return null;
+                        return (
+                          <tr key={f.key}>
+                            <td className="name">{f.label}</td>
+                            <td style={{ padding: "6px 8px", fontWeight: 700,
+                              color: a.mape < 8 ? "var(--ok)" : "var(--danger)" }}>
+                              ±{a.mape.toFixed(1)}%
+                            </td>
+                            <td style={{ padding: "6px 8px" }}>
+                              {a.tendency === "under"
+                                ? "υποεκτιμά"
+                                : a.tendency === "over"
+                                ? "υπερεκτιμά"
+                                : "ισορροπημένη"}
+                            </td>
+                            <td style={{ padding: "6px 8px" }}>{a.days}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {accuracy && (
+
+        {/* ---------------- ΑΠΑΙΤΟΥΜΕΝΑ ΛΙΤΡΑ ---------------- */}
+        {tab === "order" && (
           <div className="card">
-            <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>
-              Πόσο πέφτει μέσα η πρόβλεψη
-            </h2>
-            <p className="sub" style={{ marginBottom: 10 }}>
-              Σύγκριση για τις τελευταίες {accuracy.n} μέρες: τι θα προέβλεπε το
-              μοντέλο έναντι του τι πούλησες τελικά (σύνολο όλων των καυσίμων).
+            <h2>Απαιτούμενα λίτρα για κάλυψη</h2>
+            <p className="sub" style={{ marginBottom: 12 }}>
+              Διάλεξε ποιες μέρες πρέπει να καλύψει η παραλαβή. Ο υπολογισμός{" "}
+              <strong>δεν αφαιρεί</strong> τρέχον απόθεμα δεξαμενής,
+              προγραμματισμένη παραλαβή ή απόθεμα ασφαλείας.
             </p>
-            <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "var(--petrol)" }}>
-                  ±{accuracy.mape.toFixed(1)}%
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                  μέση απόκλιση
-                </div>
-              </div>
-              <div>
-                <div
-                  style={{
-                    fontSize: 26,
-                    fontWeight: 800,
-                    color: Math.abs(accuracy.bias) < 3 ? "var(--ok)" : "var(--danger)",
-                  }}
-                >
-                  {accuracy.bias > 0 ? "+" : ""}
-                  {accuracy.bias.toFixed(1)}%
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                  τάση ({accuracy.bias > 0 ? "υποεκτιμά" : "υπερεκτιμά"})
-                </div>
-              </div>
-            </div>
-            <div className="gridwrap">
-              <table className="sched">
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", paddingLeft: 10 }}>Ημέρα</th>
-                    <th>Πρόβλεψη</th>
-                    <th>Πραγματικά</th>
-                    <th>Απόκλιση</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accuracy.rows.map((r) => (
-                    <tr key={r.date}>
-                      <td className="name">
-                        {DAY_NAMES[r.wd]} {r.date.slice(8)}/{r.date.slice(5, 7)}
-                      </td>
-                      <td style={{ padding: "6px 8px" }}>{fmt(r.pred)}</td>
-                      <td style={{ padding: "6px 8px", fontWeight: 600 }}>
-                        {fmt(r.actual)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          fontWeight: 700,
-                          color:
-                            Math.abs(r.dev) < 8 ? "var(--ok)" : "var(--danger)",
-                        }}
+
+            {!forecast ? (
+              <p className="sub">Χρειάζονται τουλάχιστον 14 μέρες δεδομένων.</p>
+            ) : (
+              <>
+                {presets.length > 0 && (
+                  <div className="toolbar" style={{ marginBottom: 12 }}>
+                    {presets.map((p) => (
+                      <span className="preset" key={p.id}>
+                        <button className="btn secondary" onClick={() => setWeights(p.weights || {})}>
+                          {p.name}
+                        </button>
+                        <button className="preset-x" onClick={() => delPreset(p.id)} title="Διαγραφή">
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="toolbar" style={{ alignItems: "flex-end", marginBottom: 12 }}>
+                  {forecast.days.map((d, i) => (
+                    <label className="f" key={i}>
+                      {DAY_NAMES[(d.getDay() + 6) % 7]} {i === 0 ? "(σήμερα)" : fmtShort(d)}
+                      <select
+                        value={weights[i] ?? 0}
+                        onChange={(e) => setWeights({ ...weights, [i]: Number(e.target.value) })}
+                        style={{ width: 92 }}
                       >
-                        {r.dev > 0 ? "+" : ""}
-                        {r.dev.toFixed(1)}%
-                      </td>
-                    </tr>
+                        <option value={0}>—</option>
+                        <option value={0.25}>25%</option>
+                        <option value={0.5}>50%</option>
+                        <option value={0.75}>75%</option>
+                        <option value={1}>100%</option>
+                      </select>
+                    </label>
                   ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="sub" style={{ margin: "10px 0 0" }}>
-              Κάτω από ±8% η πρόβλεψη είναι αξιόπιστη για παραγγελία. Σταθερή
-              τάση προς μία κατεύθυνση σημαίνει ότι πρέπει να προσθέτεις ή να
-              αφαιρείς ένα σταθερό ποσοστό.
-            </p>
+                  <button className="btn secondary" onClick={() => setWeights({})}>
+                    Καθαρισμός
+                  </button>
+                </div>
+
+                {anyWeight ? (
+                  <>
+                    <div className="gridwrap">
+                      <table className="sched">
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: "left", paddingLeft: 10 }}>Καύσιμο</th>
+                            <th>Απαιτούμενα λίτρα</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {FUELS.map((f) =>
+                            required[f.key] ? (
+                              <tr key={f.key}>
+                                <td className="name">{f.label}</td>
+                                <td style={{ padding: "8px 10px", fontWeight: 700, fontSize: 16 }}>
+                                  {fmt(required[f.key])}
+                                </td>
+                              </tr>
+                            ) : null
+                          )}
+                          <tr>
+                            <td className="name" style={{ background: "#f0eee6" }}>
+                              <strong>Σύνολο</strong>
+                            </td>
+                            <td style={{ padding: "8px 10px", fontWeight: 800, fontSize: 16, background: "#f0eee6" }}>
+                              {fmt(Object.values(required).reduce((s, x) => s + x, 0))}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
+                      <label className="f">
+                        Αποθήκευση ως preset
+                        <input
+                          type="text"
+                          placeholder="π.χ. Παραγγελία Παρασκευής"
+                          value={presetName}
+                          onChange={(e) => setPresetName(e.target.value)}
+                          style={{ minWidth: 200 }}
+                        />
+                      </label>
+                      <button className="btn secondary" onClick={savePreset} disabled={!presetName.trim()}>
+                        <IconPlus /> Αποθήκευση preset
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="sub">Διάλεξε ποσοστό σε τουλάχιστον μία μέρα.</p>
+                )}
+              </>
+            )}
           </div>
         )}
 
-        {!forecast && (
-          <div className="card">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <IconUpload width={20} height={20} />
-              <div>
-                <strong>Η πρόβλεψη ενεργοποιείται με 14 μέρες δεδομένων</strong>
-                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>
-                  Έχεις {entries.length}{" "}
-                  {entries.length === 1 ? "μέρα" : "μέρες"} — ανέβασε ένα Excel
-                  μήνα για να ξεκινήσεις αμέσως.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* ---------------- ΕΙΣΑΓΩΓΗ ---------------- */}
+        {tab === "import" && (
+          <>
+            <div className="card">
+              <h2>Εισαγωγή από Excel</h2>
+              <p className="sub" style={{ marginBottom: 10 }}>
+                Δέχεται .xls/.xlsx/.csv με μία γραμμή ανά μέρα. Αν το αρχείο έχει
+                ένα φύλλο ανά μήνα, διάλεξε ποιον μήνα θες. Γραμμές χωρίς
+                ημερομηνία και κενές μέρες αγνοούνται.
+              </p>
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
 
-        <div className="card">
-          <h2 style={{ margin: "0 0 4px", fontSize: 17 }}>Εισαγωγή από Excel</h2>
-          <p className="sub" style={{ marginBottom: 10 }}>
-            Δέχεται .xls/.xlsx/.csv με μία γραμμή ανά μέρα. Αν το αρχείο έχει
-            ένα φύλλο ανά μήνα, διάλεξε ποιον μήνα θες — κάνε μία εισαγωγή για
-            κάθε μήνα. Γραμμές χωρίς ημερομηνία (Σύνολα, Μέση Τιμή) και κενές
-            μέρες αγνοούνται. Υπάρχουσες ημερομηνίες ενημερώνονται.
-          </p>
-          <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
-          {wb && (
-            <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
-              <label className="f">
-                Φύλλο (μήνας)
-                <select
-                  value={sheetName}
-                  onChange={(e) => {
-                    setSheetName(e.target.value);
-                    loadSheet(wb, e.target.value, null);
-                  }}
-                >
-                  {wb.SheetNames.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="f">
-                Γραμμή κεφαλίδων
-                <select
-                  value={headerRow}
-                  onChange={(e) => loadSheet(wb, sheetName, Number(e.target.value))}
-                >
-                  {Array.from({ length: 10 }, (_, i) => (
-                    <option key={i} value={i}>
-                      Γραμμή {i + 1}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
-          {sheetRows && !showMapping && (
-            <div style={{ marginTop: 12 }}>
-              <div
-                style={{
-                  background: "#f2f8f4",
-                  border: "1px solid #bcd9c7",
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                  marginBottom: 12,
-                }}
-              >
-                <strong style={{ fontSize: 14 }}>
-                  Βρέθηκαν {dateCount(sheetRows, headerRow, mapping.date)} μέρες με
-                  δεδομένα στο φύλλο «{sheetName}»
-                </strong>
-                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
-                  {FUELS.map((f) => {
-                    const c = mapping[f.key];
-                    const head =
-                      c >= 0
-                        ? String((sheetRows[headerRow] || [])[c] || "").replace(/\s+/g, " ").trim()
-                        : null;
-                    return (
-                      <div key={f.key}>
-                        {f.label}:{" "}
-                        {head ? (
-                          <strong style={{ color: "var(--ink)" }}>{head}</strong>
-                        ) : (
-                          <span style={{ color: "var(--danger)" }}>δεν βρέθηκε</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="toolbar">
-                <button className="btn amber" onClick={doImport} disabled={importing}>
-                  Εισαγωγή από «{sheetName}»
-                </button>
-                <button className="btn secondary" onClick={() => setShowMapping(true)}>
-                  Αλλαγή αντιστοίχισης στηλών
-                </button>
-              </div>
-            </div>
-          )}
-
-          {sheetRows && showMapping && (
-            <>
-              <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
-                {[{ key: "date", label: "Ημερομηνία" }, ...FUELS].map((f) => (
-                  <label className="f" key={f.key}>
-                    {f.label}
+              {wb && (
+                <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
+                  <label className="f">
+                    Φύλλο (μήνας)
                     <select
-                      value={mapping[f.key] ?? -1}
-                      onChange={(e) =>
-                        setMapping({ ...mapping, [f.key]: Number(e.target.value) })
-                      }
+                      value={sheetName}
+                      onChange={(e) => {
+                        setSheetName(e.target.value);
+                        loadSheet(wb, e.target.value, null);
+                      }}
                     >
-                      <option value={-1}>— καμία —</option>
-                      {(sheetRows[headerRow] || []).map((h, i) => (
-                        <option key={i} value={i}>
-                          Στ.{i + 1}: {String(h).replace(/\s+/g, " ").slice(0, 20) || "(χωρίς τίτλο)"}
-                          {colCounts[i] ? ` — ${colCounts[i]} τιμές` : " — κενή"}
-                        </option>
+                      {wb.SheetNames.map((n) => (
+                        <option key={n} value={n}>{n}</option>
                       ))}
                     </select>
                   </label>
-                ))}
-                <button className="btn amber" onClick={doImport} disabled={importing}>
-                  Εισαγωγή από «{sheetName}»
-                </button>
-                <button className="btn secondary" onClick={() => setShowMapping(false)}>
-                  ← Απλή προβολή
-                </button>
-              </div>
-              <div className="gridwrap" style={{ marginTop: 10 }}>
-                <table className="sched">
-                  <tbody>
-                    {sheetRows
-                      .slice(headerRow, headerRow + 4)
-                      .map((r, i) => (
-                        <tr key={i}>
-                          {r.slice(0, 12).map((c, j) => (
-                            <td
-                              key={j}
-                              style={{
-                                padding: "5px 8px",
-                                fontSize: 12.5,
-                                fontWeight: i === 0 ? 700 : 400,
-                              }}
-                            >
-                              {i > 0 && j === 0
-                                ? excelToISO(c) || String(c).slice(0, 14)
-                                : String(c).replace(/\n/g, " ").slice(0, 18)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-          {importMsg && (
-            <p className={importMsg.includes("✓") ? "msg-ok" : "msg-err"} style={{ marginTop: 8 }}>
-              {importMsg}
-            </p>
-          )}
-        </div>
-
-        <div className="card">
-          <h2 style={{ margin: "0 0 8px", fontSize: 17 }}>Χειροκίνητη καταχώρηση</h2>
-          <div className="toolbar" style={{ alignItems: "flex-end" }}>
-            <label className="f">
-              Ημερομηνία
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </label>
-            {FUELS.map((f) => (
-              <label className="f" key={f.key}>
-                {f.label} (λίτρα)
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={vals[f.key] ?? ""}
-                  onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}
-                  style={{ width: 110 }}
-                />
-              </label>
-            ))}
-            <label className="f">
-              Σημειώσεις
-              <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minWidth: 140 }} />
-            </label>
-            <button className="btn amber" onClick={save} disabled={busy}>
-              <IconSave /> Καταχώρηση
-            </button>
-            {msg && (
-              <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>{msg}</span>
-            )}
-          </div>
-        </div>
-
-        <div className="card gridwrap">
-          <table className="sched">
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", paddingLeft: 10 }}>Ημ/νία</th>
-                {FUELS.map((f) => (
-                  <th key={f.key}>{f.label}</th>
-                ))}
-                <th>Σημ.</th>
-                <th className="noprint"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((e) => (
-                <tr key={e.entry_date}>
-                  <td className="name">{e.entry_date}</td>
-                  {FUELS.map((f) => (
-                    <td key={f.key} style={{ padding: "6px 8px" }}>
-                      {e.liters?.[f.key] != null ? fmt(e.liters[f.key]) : "—"}
-                    </td>
-                  ))}
-                  <td style={{ padding: "6px 8px", fontSize: 13 }}>{e.notes || ""}</td>
-                  <td className="noprint" style={{ padding: 4 }}>
-                    <button
-                      className="btn danger"
-                      style={{ padding: "4px 10px", fontSize: 12 }}
-                      onClick={() => del(e.entry_date)}
+                  <label className="f">
+                    Γραμμή κεφαλίδων
+                    <select
+                      value={headerRow}
+                      onChange={(e) => loadSheet(wb, sheetName, Number(e.target.value))}
                     >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {entries.length === 0 && (
-                <tr>
-                  <td colSpan={8}>
-                    <div className="empty">
-                      <IconEmpty />
-                      <strong>Καμία καταχώρηση πωλήσεων ακόμα</strong>
-                      <p>
-                        Ανέβασε το μηνιαίο Excel με τα στατιστικά ή καταχώρησε
-                        χειροκίνητα τα λίτρα της ημέρας. Με 14 μέρες δεδομένων
-                        εμφανίζεται αυτόματα η πρόβλεψη παραγγελίας.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
+                      {Array.from({ length: 10 }, (_, i) => (
+                        <option key={i} value={i}>Γραμμή {i + 1}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+
+              {sheetRows && !showMapping && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="okbox">
+                    <strong>
+                      Βρέθηκαν {dateCount(sheetRows, headerRow, mapping.date)} μέρες
+                      στο φύλλο «{sheetName}»
+                    </strong>
+                    <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.7 }}>
+                      {FUELS.map((f) => {
+                        const c = mapping[f.key];
+                        const head =
+                          c >= 0
+                            ? String((sheetRows[headerRow] || [])[c] || "").replace(/\s+/g, " ").trim()
+                            : null;
+                        return (
+                          <div key={f.key}>
+                            {f.label}:{" "}
+                            {head ? (
+                              <strong style={{ color: "var(--ink)" }}>{head}</strong>
+                            ) : (
+                              <span style={{ color: "var(--danger)" }}>δεν βρέθηκε</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="toolbar" style={{ marginTop: 12 }}>
+                    <button className="btn amber" onClick={doImport} disabled={importing}>
+                      Εισαγωγή από «{sheetName}»
+                    </button>
+                    <button className="btn secondary" onClick={() => setShowMapping(true)}>
+                      Αλλαγή αντιστοίχισης στηλών
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {sheetRows && showMapping && (
+                <>
+                  <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
+                    {[{ key: "date", label: "Ημερομηνία" }, ...FUELS].map((f) => (
+                      <label className="f" key={f.key}>
+                        {f.label}
+                        <select
+                          value={mapping[f.key] ?? -1}
+                          onChange={(e) =>
+                            setMapping({ ...mapping, [f.key]: Number(e.target.value) })
+                          }
+                        >
+                          <option value={-1}>— καμία —</option>
+                          {(sheetRows[headerRow] || []).map((h, i) => (
+                            <option key={i} value={i}>
+                              Στ.{i + 1}: {String(h).replace(/\s+/g, " ").slice(0, 20) || "(χωρίς τίτλο)"}
+                              {colCounts[i] ? ` — ${colCounts[i]} τιμές` : " — κενή"}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    <button className="btn amber" onClick={doImport} disabled={importing}>
+                      Εισαγωγή από «{sheetName}»
+                    </button>
+                    <button className="btn secondary" onClick={() => setShowMapping(false)}>
+                      ← Απλή προβολή
+                    </button>
+                  </div>
+                  <div className="gridwrap" style={{ marginTop: 10 }}>
+                    <table className="sched">
+                      <tbody>
+                        {sheetRows.slice(headerRow, headerRow + 4).map((r, i) => (
+                          <tr key={i}>
+                            {r.slice(0, 12).map((c, j) => (
+                              <td key={j} style={{ padding: "5px 8px", fontSize: 12.5, fontWeight: i === 0 ? 700 : 400 }}>
+                                {i > 0 && j === 0
+                                  ? excelToISO(c) || String(c).slice(0, 14)
+                                  : String(c).replace(/\n/g, " ").slice(0, 18)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {importMsg && (
+                <p className={importMsg.includes("✓") ? "msg-ok" : "msg-err"} style={{ marginTop: 8 }}>
+                  {importMsg}
+                </p>
+              )}
+            </div>
+
+            <div className="card">
+              <h2>Χειροκίνητη καταχώρηση</h2>
+              <div className="toolbar" style={{ alignItems: "flex-end", marginTop: 8 }}>
+                <label className="f">
+                  Ημερομηνία
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                </label>
+                {FUELS.map((f) => (
+                  <label className="f" key={f.key}>
+                    {f.label} (λίτρα)
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={vals[f.key] ?? ""}
+                      onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}
+                      style={{ width: 110 }}
+                    />
+                  </label>
+                ))}
+                <label className="f">
+                  Σημειώσεις
+                  <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ minWidth: 140 }} />
+                </label>
+                <button className="btn amber" onClick={save} disabled={busy}>
+                  <IconSave /> Καταχώρηση
+                </button>
+                {msg && (
+                  <span className={msg.startsWith("Σφάλμα") ? "msg-err" : "msg-ok"}>{msg}</span>
+                )}
+              </div>
+              {warnOutliers.length > 0 && (
+                <div className="warn" style={{ marginTop: 10 }}>
+                  <strong>
+                    <IconWarn width={14} height={14} /> Ασυνήθιστες τιμές
+                  </strong>
+                  <ul>
+                    {warnOutliers.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ---------------- ΙΣΤΟΡΙΚΟ ---------------- */}
+        {tab === "history" && (
+          <div className="card gridwrap">
+            <table className="sched">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", paddingLeft: 10 }}>Ημ/νία</th>
+                  {FUELS.map((f) => (
+                    <th key={f.key}>{f.label}</th>
+                  ))}
+                  <th>Σημ.</th>
+                  <th>Στην πρόβλεψη</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.entry_date} className={e.excluded ? "row-excluded" : ""}>
+                    <td className="name">{e.entry_date}</td>
+                    {FUELS.map((f) => (
+                      <td key={f.key} style={{ padding: "6px 8px" }}>
+                        {e.liters?.[f.key] != null ? fmt(e.liters[f.key]) : "—"}
+                      </td>
+                    ))}
+                    <td style={{ padding: "6px 8px", fontSize: 13 }}>{e.notes || ""}</td>
+                    <td style={{ padding: 4, textAlign: "center" }}>
+                      <button
+                        className="btn secondary"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => toggleExcluded(e)}
+                        title="Εξαίρεση από την πρόβλεψη χωρίς διαγραφή δεδομένων"
+                      >
+                        {e.excluded ? "Εξαιρεμένη" : "Ναι"}
+                      </button>
+                    </td>
+                    <td style={{ padding: 4 }}>
+                      <button
+                        className="btn danger"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => del(e.entry_date)}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {entries.length === 0 && (
+                  <tr>
+                    <td colSpan={9}>
+                      <div className="empty">
+                        <IconEmpty />
+                        <strong>Καμία καταχώρηση πωλήσεων ακόμα</strong>
+                        <p>
+                          Ανέβασε το μηνιαίο Excel από την καρτέλα «Εισαγωγή
+                          αρχείου» ή καταχώρησε χειροκίνητα τα λίτρα της ημέρας.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </>
   );

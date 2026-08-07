@@ -1,4 +1,15 @@
+import { Commissioner } from "next/font/google";
 import "./globals.css";
+
+// next/font: η γραμματοσειρά κατεβαίνει στο build και σερβίρεται self-hosted.
+// Καμία εξωτερική κλήση στο Google Fonts κατά την εκτέλεση.
+const commissioner = Commissioner({
+  subsets: ["greek", "latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+  variable: "--font-commissioner",
+  fallback: ["Segoe UI", "system-ui", "sans-serif"],
+});
 
 export const metadata = {
   title: "Turno · Πρόγραμμα βαρδιών",
@@ -7,14 +18,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="el">
+    <html lang="el" className={commissioner.variable}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>{children}</body>

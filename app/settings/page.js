@@ -180,6 +180,7 @@ export default function SettingsPage() {
   const [sunday, setSunday] = useState({});
   const [workDays, setWorkDays] = useState(6);
   const [maxPerShift, setMaxPerShift] = useState(4);
+  const [leaveReplacesRest, setLeaveReplacesRest] = useState(true);
   const [shiftDefs, setShiftDefs] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -195,6 +196,7 @@ export default function SettingsPage() {
         setSunday(d.settings?.sunday_req || {});
         setWorkDays(d.settings?.work_days || 6);
         setMaxPerShift(d.settings?.max_per_shift || 4);
+        setLeaveReplacesRest(d.settings?.leave_replaces_rest !== false);
         const sh = d.settings?.shifts;
         setShiftDefs(sh && Object.keys(sh).length ? sh : { ...DEFAULT_SHIFTS });
       });
@@ -219,6 +221,7 @@ export default function SettingsPage() {
         sunday_req: sunday,
         work_days: workDays,
         max_per_shift: maxPerShift,
+        leave_replaces_rest: leaveReplacesRest,
         shifts: shiftDefs,
       }),
     });
@@ -341,6 +344,16 @@ export default function SettingsPage() {
               </select>
             </label>
             <label className="f">
+              Η ημέρα άδειας (Ο) αντικαθιστά το εβδομαδιαίο ρεπό;
+              <select
+                value={leaveReplacesRest ? "1" : "0"}
+                onChange={(e) => touch(setLeaveReplacesRest)(e.target.value === "1")}
+              >
+                <option value="1">Ναι — η άδεια μετράει ως το ρεπό</option>
+                <option value="0">Όχι — δικαιούται και ρεπό</option>
+              </select>
+            </label>
+            <label className="f">
               Μέγιστα άτομα ταυτόχρονα
               <input
                 type="number"
@@ -353,7 +366,8 @@ export default function SettingsPage() {
             </label>
           </div>
           <p className="sub" style={{ margin: "12px 0 0" }}>
-            Οι πλήρους απασχόλησης βγαίνουν αυστηρά τόσες μέρες. Όποιος
+            Με «Όχι» στην άδεια, μια εβδομάδα με ένα Ο σε εξαήμερο καταλήγει σε 5
+            εργάσιμες + 1 Ο + 1 Ρ. Οι πλήρους απασχόλησης βγαίνουν αυστηρά τόσες μέρες. Όποιος
             περισσεύει από τις ελάχιστες απαιτήσεις μπαίνει ως επιπλέον άτομο σε
             βάρδια — όχι σε δεύτερο ρεπό. Το όριο μετράει πραγματική ταυτόχρονη
             παρουσία, μαζί με όσους ξημερώνουν από την προηγούμενη μέρα.

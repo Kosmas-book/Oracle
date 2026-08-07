@@ -4,13 +4,17 @@ import { getStation } from "@/lib/stationAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req) {
   const st = await getStation();
   if (!st) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { data, error } = await supabaseAdmin()
+  const { searchParams } = new URL(req.url);
+  const includeInactive = searchParams.get("all") === "1";
+  let q = supabaseAdmin()
     .from("employees")
     .select("*")
-    .eq("station_id", st.id)
+    .eq("station_id", st.id);
+  if (!includeInactive) q = q.is("deactivated_at", null);
+  const { data, error } = await q
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -61,17 +65,27 @@ export async function POST(req) {
   return NextResponse.json({ employee: data });
 }
 
+// Γ: SOFT DELETE — ο εργαζόμενος απενεργοποιείται, δεν διαγράφεται ποτέ,
+// ώστε τα ιστορικά προγράμματα να συνεχίσουν να δείχνουν σωστά ονόματα/ώρες.
 export async function DELETE(req) {
   const st = await getStation();
   if (!st) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
+  const restore = searchParams.get("restore") === "1";
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
-  const { error } = await supabaseAdmin()
+  const { data, error } = await supabaseAdmin()
     .from("employees")
-    .delete()
+    .update({
+      // deactivated_at = ΜΟΝΑΔΙΚΗ πηγή αλήθειας. Το active συντηρείται μόνο
+      // για συμβατότητα με παλιότερες εγγραφές.
+      deactivated_at: restore ? null : new Date().toISOString(),
+      active: restore ? true : false,
+    })
     .eq("id", id)
-    .eq("station_id", st.id);
+    .eq("station_id", st.id)
+    .select()
+    .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, employee: data, restored: restore });
 }

@@ -60,7 +60,11 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
 
   async function del() {
     if (!e.id) return;
-    if (!confirm(`Διαγραφή «${e.name}»; Θα φύγει και από παλιά προγράμματα.`))
+    if (
+      !confirm(
+        `Απενεργοποίηση του/της «${e.name}»;\n\nΔεν θα μπαίνει σε νέα προγράμματα, αλλά παραμένει σε όλα τα παλιά αποθηκευμένα. Μπορείς να τον/την επαναφέρεις όποτε θες.`
+      )
+    )
       return;
     setBusy(true);
     await fetch(`/api/employees?id=${e.id}`, { method: "DELETE" });
@@ -181,7 +185,7 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
       </button>
       {e.id && (
         <button className="btn danger" onClick={del} disabled={busy}>
-          Διαγραφή
+          Απενεργοποίηση
         </button>
       )}
       {err && <span className="msg-err">{err}</span>}
@@ -191,14 +195,25 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
 
 export default function EmployeesPage() {
   const SHIFTS = useStationShifts();
+  const [showInactive, setShowInactive] = useState(false);
   const [list, setList] = useState([]);
   const [editing, setEditing] = useState(null); // id | "new" | null
 
-  useEffect(() => {
-    fetch("/api/employees")
+  function reload() {
+    fetch("/api/employees?all=1")
       .then((r) => r.json())
       .then((d) => setList(d.employees || []));
-  }, []);
+  }
+  useEffect(reload, []);
+
+  const isInactive = (e) => !!e.deactivated_at;
+  const visible = list.filter((e) => showInactive || !isInactive(e));
+  const inactiveCount = list.filter(isInactive).length;
+
+  async function restore(id) {
+    await fetch(`/api/employees?id=${id}&restore=1`, { method: "DELETE" });
+    reload();
+  }
 
   async function move(i, dir) {
     const j = i + dir;
@@ -256,14 +271,24 @@ export default function EmployeesPage() {
               onDeleted={() => {}}
             />
           ) : (
-            <button className="btn amber" onClick={() => setEditing("new")}>
-              <IconPlus /> Νέος υπάλληλος
-            </button>
+            <div className="toolbar">
+              <button className="btn amber" onClick={() => setEditing("new")}>
+                <IconPlus /> Νέος υπάλληλος
+              </button>
+              {inactiveCount > 0 && (
+                <button
+                  className="btn secondary"
+                  onClick={() => setShowInactive(!showInactive)}
+                >
+                  {showInactive ? "Απόκρυψη" : "Εμφάνιση"} ανενεργών ({inactiveCount})
+                </button>
+              )}
+            </div>
           )}
         </div>
 
         <div className="card">
-          {list.map((e) =>
+          {visible.map((e) =>
             editing === e.id ? (
               <EmployeeForm
                 SHIFTS={SHIFTS}
@@ -272,12 +297,12 @@ export default function EmployeesPage() {
                 onSaved={upsertLocal}
                 onCancel={() => setEditing(null)}
                 onDeleted={(id) => {
-                  setList((l) => l.filter((x) => x.id !== id));
+                  reload();
                   setEditing(null);
                 }}
               />
             ) : (
-              <div className="emp-card" key={e.id}>
+              <div className={"emp-card" + (isInactive(e) ? " inactive" : "")} key={e.id}>
                 <div className="emp-move">
                   <button
                     className="emp-arrow"
@@ -298,7 +323,7 @@ export default function EmployeesPage() {
                 <div className="emp-main">
                   <div className="emp-name">
                     {e.name}
-                    {!e.active && <span className="pill muted">ανενεργός</span>}
+                    {isInactive(e) && <span className="pill muted">ανενεργός</span>}
                     {e.employment_type === "part" && (
                       <span className="pill">part-time {e.min_days}–{e.max_days}</span>
                     )}
@@ -336,13 +361,19 @@ export default function EmployeesPage() {
                   )}
                 </div>
 
-                <button className="btn secondary" onClick={() => setEditing(e.id)}>
-                  <IconEdit /> Επεξεργασία
-                </button>
+                {isInactive(e) ? (
+                  <button className="btn secondary" onClick={() => restore(e.id)}>
+                    ⟲ Επαναφορά
+                  </button>
+                ) : (
+                  <button className="btn secondary" onClick={() => setEditing(e.id)}>
+                    <IconEdit /> Επεξεργασία
+                  </button>
+                )}
               </div>
             )
           )}
-          {list.length === 0 && (
+          {visible.length === 0 && (
             <div className="empty">
               <IconEmpty />
               <strong>Δεν έχεις προσθέσει προσωπικό ακόμα</strong>

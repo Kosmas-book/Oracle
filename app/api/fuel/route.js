@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getStation } from "@/lib/stationAuth";
+import { validateEntry } from "@/lib/fuelCalc";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +24,15 @@ export async function POST(req) {
   const body = await req.json();
   if (!body.entry_date)
     return NextResponse.json({ error: "missing date" }, { status: 400 });
+  const v = validateEntry({ entry_date: body.entry_date, liters: body.liters });
+  if (!v.ok)
+    return NextResponse.json({ error: v.errors.join(" ") }, { status: 400 });
   const row = {
     station_id: st.id,
     entry_date: body.entry_date,
-    liters: body.liters || {},
+    liters: v.liters,
     notes: body.notes || null,
+    excluded: !!body.excluded,
   };
   const { data, error } = await supabaseAdmin()
     .from("fuel_entries")
@@ -51,12 +56,17 @@ export async function PUT(req) {
       { status: 400 }
     );
   const rows = [];
+  const rejected = [];
   for (const e of entries) {
-    if (!e.entry_date || !/^\d{4}-\d{2}-\d{2}$/.test(e.entry_date)) continue;
+    const v = validateEntry({ entry_date: e.entry_date, liters: e.liters });
+    if (!v.ok) {
+      rejected.push(`${e.entry_date || "(χωρίς ημ/νία)"}: ${v.errors.join(" ")}`);
+      continue;
+    }
     rows.push({
       station_id: st.id,
       entry_date: e.entry_date,
-      liters: e.liters || {},
+      liters: v.liters,
       notes: e.notes || null,
     });
   }
@@ -66,7 +76,23 @@ export async function PUT(req) {
     .from("fuel_entries")
     .upsert(rows, { onConflict: "station_id,entry_date" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ imported: rows.length });
+  return NextResponse.json({ imported: rows.length, rejected });
+}
+
+// Εξαίρεση ημέρας από την πρόβλεψη ΧΩΡΙΣ διαγραφή των δεδομένων της.
+export async function PATCH(req) {
+  const st = await getStation();
+  if (!st) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const { entry_date, excluded } = await req.json();
+  if (!entry_date)
+    return NextResponse.json({ error: "missing date" }, { status: 400 });
+  const { error } = await supabaseAdmin()
+    .from("fuel_entries")
+    .update({ excluded: !!excluded })
+    .eq("station_id", st.id)
+    .eq("entry_date", entry_date);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req) {

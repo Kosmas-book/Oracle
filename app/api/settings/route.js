@@ -10,6 +10,7 @@ const DEFAULTS = {
   work_days: 6,
   max_per_shift: 4,
   shifts: {},
+  leave_replaces_rest: true,
 };
 
 export async function GET() {
@@ -34,6 +35,7 @@ export async function POST(req) {
     sunday_req: body.sunday_req || DEFAULTS.sunday_req,
     work_days: [5, 6].includes(Number(body.work_days)) ? Number(body.work_days) : 6,
     max_per_shift: Math.min(8, Math.max(1, Number(body.max_per_shift) || 4)),
+    leave_replaces_rest: body.leave_replaces_rest !== false,
     shifts: (() => {
       const src = body.shifts && typeof body.shifts === "object" ? body.shifts : {};
       const out = {};
