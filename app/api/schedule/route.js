@@ -159,6 +159,28 @@ export async function POST(req) {
     );
   }
 
+  const starter = actualNightStarter(body, ctx.employees);
+  if (starter.ambiguous && !body.override)
+    return NextResponse.json(
+      {
+        needsConfirmation: true,
+        errors: check.errors + 1,
+        warnings: check.warnings,
+        groups: [
+          ...check.groups,
+          {
+            key: "ambiguousNight",
+            level: "error",
+            title: "Ασαφής κάτοχος νυχτερινού κύκλου",
+            items: [
+              `Την Κυριακή έχουν Β οι: ${starter.names.join(", ")}. Επιτρέπεται μόνο ένας, αλλιώς δεν μπορεί να προσδιοριστεί ποιος ξεκινά το νέο μπλοκ.`,
+            ],
+          },
+        ],
+      },
+      { status: 409 }
+    );
+
   const row = {
     station_id: st.id,
     week_start: body.week_start,
@@ -166,7 +188,7 @@ export async function POST(req) {
     night_person: body.night_person || null,
     next_night_person: body.next_night_person || null,
     // Α: ποιος ΠΡΑΓΜΑΤΙΚΑ ξεκίνησε το νέο νυχτερινό μπλοκ την Κυριακή.
-    actual_night_person: actualNightStarter(body, ctx.employees),
+    actual_night_person: starter.id,
     day_req: Array.isArray(body.day_req) ? body.day_req : [],
     night_exceptions: Array.isArray(body.night_exceptions) ? body.night_exceptions : [],
     override_warnings: total > 0 ? check.all.slice(0, 200) : [],
@@ -215,9 +237,16 @@ export async function POST(req) {
 }
 
 // Ο πραγματικός κάτοχος του νέου κύκλου = όποιος έχει Β την Κυριακή.
-// Αν ο planned δεν το έκανε τελικά, συνεχίζει ο πραγματικός.
+// Αν υπάρχουν ΠΟΛΛΑΠΛΟΙ Β, δεν διαλέγουμε αυθαίρετα — επιστρέφουμε ambiguity.
 function actualNightStarter(body, employees) {
   const grid = body.grid || {};
-  for (const e of employees) if ((grid[e.id] || [])[6] === "Β") return e.id;
-  return body.next_night_person || null;
+  const holders = employees.filter((e) => (grid[e.id] || [])[6] === "Β");
+  if (holders.length === 1) return { id: holders[0].id, ambiguous: false };
+  if (holders.length > 1)
+    return {
+      id: null,
+      ambiguous: true,
+      names: holders.map((e) => e.name),
+    };
+  return { id: body.next_night_person || null, ambiguous: false };
 }

@@ -110,7 +110,10 @@ test("C3. Πιεσμένη στελέχωση: ο part-time ΔΕΝ ξεπερν�
     2,
     `ο part-time ξεπέρασε τον στόχο: ${grid["pt"].join(" ")}`
   );
-  assert.ok(warnings.some((w) => w.includes("λείπει")), "αναμένονται κενά κάλυψης");
+  assert.ok(
+    warnings.some((w) => w.includes("ακάλυπτες θέσεις") || w.includes("λείπει")),
+    "αναμένεται αναφορά κενών κάλυψης: " + warnings.join(" | ")
+  );
 });
 
 test("C4. Soft delete: deactivated_at είναι η μοναδική πηγή αλήθειας", () => {

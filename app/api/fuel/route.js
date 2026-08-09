@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getStation } from "@/lib/stationAuth";
-import { validateEntry } from "@/lib/fuelCalc";
+import { validateEntry, resolveExcluded, mergeLiters, dedupeEntries } from "@/lib/fuelCalc";
 
 export const dynamic = "force-dynamic";
 
@@ -27,12 +27,22 @@ export async function POST(req) {
   const v = validateEntry({ entry_date: body.entry_date, liters: body.liters });
   if (!v.ok)
     return NextResponse.json({ error: v.errors.join(" ") }, { status: 400 });
+
+  // MERGE-BEFORE-UPSERT: τα καύσιμα που ΔΕΝ περιλαμβάνονται στο νέο payload
+  // διατηρούνται. Μηδενισμός γίνεται μόνο με ρητή τιμή 0.
+  const { data: existing } = await supabaseAdmin()
+    .from("fuel_entries")
+    .select("liters,notes,excluded")
+    .eq("station_id", st.id)
+    .eq("entry_date", body.entry_date)
+    .maybeSingle();
+
   const row = {
     station_id: st.id,
     entry_date: body.entry_date,
-    liters: v.liters,
-    notes: body.notes || null,
-    excluded: !!body.excluded,
+    liters: mergeLiters(existing?.liters, v.liters),
+    notes: body.notes ?? existing?.notes ?? null,
+    excluded: resolveExcluded(body, existing),
   };
   const { data, error } = await supabaseAdmin()
     .from("fuel_entries")
@@ -57,17 +67,41 @@ export async function PUT(req) {
     );
   const rows = [];
   const rejected = [];
+  const valid = [];
   for (const e of entries) {
     const v = validateEntry({ entry_date: e.entry_date, liters: e.liters });
     if (!v.ok) {
-      rejected.push(`${e.entry_date || "(χωρίς ημ/νία)"}: ${v.errors.join(" ")}`);
+      rejected.push({
+        date: e.entry_date || null,
+        row: e.__row ?? null,
+        reason: v.errors.join(" "),
+      });
       continue;
     }
+    valid.push({ entry_date: e.entry_date, liters: v.liters, notes: e.notes });
+  }
+
+  // 8: DEDUPLICATION μέσα στο ίδιο αρχείο (κοινή function με τα tests).
+  const merged = dedupeEntries(valid);
+
+  // MERGE-BEFORE-UPSERT και στο import: κρατάμε τα καύσιμα που δεν στάλθηκαν.
+  const dates = merged.map((v) => v.entry_date);
+  const existingMap = {};
+  if (dates.length) {
+    const { data: prev } = await supabaseAdmin()
+      .from("fuel_entries")
+      .select("entry_date,liters,notes")
+      .eq("station_id", st.id)
+      .in("entry_date", dates);
+    for (const r of prev || []) existingMap[r.entry_date] = r;
+  }
+  for (const v of merged) {
+    const ex = existingMap[v.entry_date];
     rows.push({
       station_id: st.id,
-      entry_date: e.entry_date,
-      liters: v.liters,
-      notes: e.notes || null,
+      entry_date: v.entry_date,
+      liters: mergeLiters(ex?.liters, v.liters),
+      notes: v.notes ?? ex?.notes ?? null,
     });
   }
   if (!rows.length)

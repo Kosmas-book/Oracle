@@ -11,6 +11,7 @@ const DEFAULTS = {
   max_per_shift: 4,
   shifts: {},
   leave_replaces_rest: true,
+  night_rotation_order: [],
 };
 
 export async function GET() {
@@ -36,6 +37,9 @@ export async function POST(req) {
     work_days: [5, 6].includes(Number(body.work_days)) ? Number(body.work_days) : 6,
     max_per_shift: Math.min(8, Math.max(1, Number(body.max_per_shift) || 4)),
     leave_replaces_rest: body.leave_replaces_rest !== false,
+    night_rotation_order: Array.isArray(body.night_rotation_order)
+      ? body.night_rotation_order.filter((x) => typeof x === "string").slice(0, 50)
+      : [],
     shifts: (() => {
       const src = body.shifts && typeof body.shifts === "object" ? body.shifts : {};
       const out = {};

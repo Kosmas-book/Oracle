@@ -55,19 +55,50 @@ test("N2. Δημήτρης → Τάτος → Δημήτρης ξανά: ΕΠΙ�
   for (let d = 0; d < 6; d++) assert.equal(w3.grid["dim"][d], "Β");
 });
 
-test("N3. Εργασία Σαββάτου πριν από νέο μπλοκ ΕΠΙΤΡΕΠΕΤΑΙ (Α 14–22 → Β 22–06)", () => {
+test("N3. Normal new night holder: υποχρεωτικό Ρ Σαββάτου + Β Κυριακής", () => {
+  const { grid, nightConflicts } = gen({
+    nightPersonId: "dim",
+    nextNightPersonId: "tat",
+  });
+  assert.equal(grid["tat"][5], "Ρ", `Σάββατο: ${grid["tat"].join(" ")}`);
+  assert.equal(grid["tat"][6], "Β");
+  assert.ok(
+    !nightConflicts.some((c) => c.includes("Σάββατο")),
+    "δεν πρέπει να υπάρχει conflict: " + nightConflicts.join(" | ")
+  );
+});
+
+test("N3β. Fixed Α το Σάββατο σε normal new night holder → ρητό conflict", () => {
   const emps = rota();
   emps.find((e) => e.id === "tat").fixed_days = { 5: "Α" };
-  const { grid, nightConflicts } = gen({
+  const { nightConflicts } = gen({
     employees: emps,
     nightPersonId: "dim",
     nextNightPersonId: "tat",
   });
-  assert.equal(grid["tat"][5], "Α", "το Σάββατο μένει εργάσιμο");
-  assert.equal(grid["tat"][6], "Β", "ξεκινά κανονικά το μπλοκ");
   assert.ok(
-    !nightConflicts.some((c) => c.includes("Σάββατο")),
-    "δεν πρέπει να υπάρχει conflict: " + nightConflicts.join(" | ")
+    nightConflicts.some(
+      (c) => c.includes("Ρ το Σάββατο") && c.includes("σταθερή βάρδια")
+    ),
+    "λείπει το conflict: " + nightConflicts.join(" | ")
+  );
+});
+
+test("N3γ. Άλλο Ρ μέσα στην εβδομάδα ΔΕΝ ακυρώνει την απαίτηση Σαββάτου", () => {
+  const emps = rota();
+  emps.find((e) => e.id === "tat").fixed_days = { 1: "Ρ" }; // Ρ Τρίτης
+  const { grid } = gen({
+    employees: emps,
+    nightPersonId: "dim",
+    nextNightPersonId: "tat",
+    // ΔΕΝ είναι previous holder → καμία εξαίρεση
+    prevNightPersonId: "n3",
+  });
+  assert.equal(grid["tat"][1], "Ρ", "το Ρ Τρίτης παραμένει");
+  assert.equal(
+    grid["tat"][5],
+    "Ρ",
+    `το Σάββατο παραμένει υποχρεωτικό Ρ: ${grid["tat"].join(" ")}`
   );
 });
 
@@ -187,27 +218,85 @@ test("N10. Κανονικά ο επόμενος βραδινός παίρνει 
   );
 });
 
-test("N11. Όταν έχει ήδη Ρ Δευτέρας (carry-over), δουλεύει το Σάββατο", () => {
-  // Δημήτρης: τελείωσε το μπλοκ του (Ρ Δευτέρας) και ξαναμπαίνει Κυριακή.
-  const { grid, warnings } = run({
+test("N11. Repeat A→B→A: ο επανερχόμενος μπορεί να δουλέψει Σάββατο", () => {
+  // Ο Δημήτρης ολοκλήρωσε το μπλοκ του (previous) και ξαναεπιλέγεται (next).
+  const { grid, warnings, nightConflicts } = run({
     nightPersonId: "tat",
     nextNightPersonId: "dim",
     prevNightPersonId: "dim",
   });
   assert.equal(grid["dim"][0], "Ρ", "υποχρεωτικό Ρ Δευτέρας");
-  assert.ok(
-    grid["dim"][5] && grid["dim"][5] !== "Ρ",
-    `το Σάββατο πρέπει να είναι εργάσιμο: ${grid["dim"].join(" ")}`
-  );
   assert.equal(grid["dim"][6], "Β", "ξεκινά το νέο μπλοκ");
-  assert.equal(workedDays(grid["dim"]), 6, "παραμένει εξαήμερο");
-  assert.equal(
-    grid["dim"].filter((c) => c === "Ρ").length,
-    1,
-    "μόνο ένα ρεπό — δεν δικαιούται δεύτερο"
-  );
   assert.ok(
-    warnings.some((w) => w.includes("Σάββατο") && w.includes("δεν του περίσσευε")),
-    "λείπει η ενημερωτική σημείωση: " + warnings.join(" | ")
+    !nightConflicts.some((c) => c.includes("υποχρεωτικό Ρ το Σάββατο")),
+    "δεν πρέπει να απαιτείται Ρ Σαββάτου στο repeat: " + nightConflicts.join(" | ")
+  );
+  if (grid["dim"][5] !== "Ρ" && grid["dim"][5] !== "Ο")
+    assert.ok(
+      warnings.some((w) => w.includes("επανεντάσσεται")),
+      "λείπει η ενημερωτική σημείωση: " + warnings.join(" | ")
+    );
+});
+
+test("N12. Repeat exception: το 11ωρο εξακολουθεί να ισχύει", () => {
+  const shifts = {
+    "Π": { label: "Πρωί", start: 6, end: 14 },
+    "Α": { label: "Απόγευμα", start: 14, end: 22 },
+    "ΜΚ": { label: "Μακρά", start: 20, end: 38 }, // λήγει 14:00 Κυριακής
+    "Β": { label: "Βράδυ", start: 22, end: 30 },
+  };
+  const emps = [
+    mk("dim", "ΔΗΜΗΤΡΗΣ", { allowed_shifts: ["Π", "Α", "ΜΚ", "Β"], fixed_days: { 5: "ΜΚ" } }),
+    mk("tat", "ΤΑΤΟΣ", { allowed_shifts: ["Π", "Α", "Β"] }),
+    ...team(9).slice(2).map((e) => ({ ...e, allowed_shifts: ["Π", "Α"] })),
+  ];
+  const { nightConflicts } = generateWeek({
+    employees: emps,
+    weekdayReq: { "Π": 2, "Α": 2 },
+    sundayReq: { "Π": 2, "Α": 2 },
+    nightPersonId: "tat",
+    nextNightPersonId: "dim",
+    prevNightPersonId: "dim",
+    workDays: 6,
+    maxPerShift: 5,
+    shifts,
+  });
+  assert.ok(
+    nightConflicts.some((c) => c.includes("ώρες") && c.includes("Σάββατο")),
+    "το 11ωρο πρέπει να ελέγχεται και στο repeat: " + nightConflicts.join(" | ")
+  );
+});
+
+test("N13. Ακριβώς ΕΝΑΣ Β ανά ημερομηνία", () => {
+  const { grid } = run({ nightPersonId: "dim", nextNightPersonId: "tat" });
+  for (let d = 0; d < 7; d++) {
+    const n = feasible().filter((e) => grid[e.id][d] === "Β").length;
+    assert.equal(n, 1, `ημέρα ${d}: ${n} νυχτερινοί`);
+  }
+});
+
+test("N14. Δύο Β την ίδια μέρα → ρητό conflict", () => {
+  const { grid, nightConflicts } = run({
+    nightPersonId: "dim",
+    nextNightPersonId: "tat",
+  });
+  // Χειροκίνητη προσθήκη δεύτερου Β: το πιάνει ο validator (βλ. validate.test)
+  // αλλά και ο generator αν του δοθεί ήδη κατειλημμένο κελί.
+  const emps = feasible();
+  emps.find((e) => e.id === "n3") &&
+    (emps.find((e) => e.id === "n3").allowed_shifts = ["Β", "Α"]);
+  const r = generateWeek({
+    employees: emps,
+    weekdayReq: WEEKDAY,
+    sundayReq: SUNDAY,
+    nightPersonId: "dim",
+    nextNightPersonId: "tat",
+    workDays: 6,
+    maxPerShift: 4,
+    locked: { e3: { 2: "Β" } }, // δεύτερος Β την Τετάρτη
+  });
+  assert.ok(
+    r.nightConflicts.some((c) => c.includes("Επιτρέπεται μόνο ένας")),
+    "δεν εντοπίστηκε διπλός Β: " + r.nightConflicts.join(" | ")
   );
 });

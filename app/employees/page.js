@@ -89,7 +89,7 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
           value={e.employment_type}
           onChange={(ev) => setE({ ...e, employment_type: ev.target.value })}
         >
-          <option value="full">Πλήρους (6 μέρες)</option>
+          <option value="full">Πλήρους</option>
           <option value="part">Part-time</option>
         </select>
       </label>
@@ -166,16 +166,6 @@ function EmployeeForm({ initial, onSaved, onCancel, onDeleted, SHIFTS }) {
             </span>
           ))}
         </span>
-      </label>
-      <label className="f">
-        Ενεργός
-        <select
-          value={e.active ? "1" : "0"}
-          onChange={(ev) => setE({ ...e, active: ev.target.value === "1" })}
-        >
-          <option value="1">Ναι</option>
-          <option value="0">Όχι</option>
-        </select>
       </label>
       <button className="btn" onClick={save} disabled={busy || !e.name.trim()}>
         <IconSave /> Αποθήκευση

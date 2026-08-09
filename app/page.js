@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import Logo from "@/lib/Logo";
 import { validateGrid } from "@/lib/validate";
+import MonthView from "@/lib/MonthView";
 import { employeeSummary } from "@/lib/hours";
 import { targetDays } from "@/lib/scheduleRules";
 import {
@@ -90,6 +91,7 @@ export default function SchedulePage() {
   const [saveIssues, setSaveIssues] = useState(null); // modal επιβεβαίωσης
   const [editMode, setEditMode] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [mode, setMode] = useState("week"); // "week" | "month"
   const [showTargets, setShowTargets] = useState(false);
   const check = useMemo(() => {
     if (!settingsCfg || !employees.length || !effectiveDayReq) return null;
@@ -422,6 +424,23 @@ export default function SchedulePage() {
       <Nav />
       <div className="wrap">
         <h1>Πρόγραμμα εργασίας</h1>
+        <div className="modeswitch noprint">
+          <button
+            className={"modebtn" + (mode === "week" ? " on" : "")}
+            onClick={() => setMode("week")}
+          >
+            Εβδομάδα
+          </button>
+          <button
+            className={"modebtn" + (mode === "month" ? " on" : "")}
+            onClick={() => setMode("month")}
+          >
+            Μήνας
+          </button>
+        </div>
+        {mode === "month" && <MonthView stationName={stationName} />}
+        {mode === "week" && (
+        <>
         <p className="sub">
           Εβδομάδα {fmtShort(days[0])} – {fmtShort(days[6])} ·{" "}
           {days[0].getFullYear()}
@@ -589,7 +608,11 @@ export default function SchedulePage() {
                         </option>
                       ))}
                   </select>
-                  <span className="nc-note">ρεπό Σάββατο, μπαίνει Κυριακή</span>
+                  <span className="nc-note">
+                    {nextNight && prevInfo?.night_person === nextNight
+                      ? "Επανένταξη σε βραδινό: δεν απαιτείται νέο ρεπό Σαββάτου · ισχύει έλεγχος 11ώρου."
+                      : "Ρεπό Σάββατο → Β Κυριακή"}
+                  </span>
                 </div>
               </div>
 
@@ -818,7 +841,10 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {saveIssues && (
+        </>
+        )}
+
+        {saveIssues && mode === "week" && (
           <div className="modal-back" onClick={() => setSaveIssues(null)}>
             <div className="modal" onClick={(ev) => ev.stopPropagation()}>
               <h3>

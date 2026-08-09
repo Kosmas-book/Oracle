@@ -181,6 +181,8 @@ export default function SettingsPage() {
   const [workDays, setWorkDays] = useState(6);
   const [maxPerShift, setMaxPerShift] = useState(4);
   const [leaveReplacesRest, setLeaveReplacesRest] = useState(true);
+  const [rotation, setRotation] = useState([]);      // ids με σειρά
+  const [nightPool, setNightPool] = useState([]);    // υποψήφιοι με Β
   const [shiftDefs, setShiftDefs] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -188,7 +190,36 @@ export default function SettingsPage() {
 
   const SHIFTS = useMemo(() => allShifts(shiftDefs), [shiftDefs]);
 
+  // Πλήρης σειρά rotation: πρώτα οι αποθηκευμένοι με τη σειρά τους,
+  // μετά όσοι απέκτησαν δικαίωμα Β αργότερα.
+  const orderedIds = useMemo(
+    () => [
+      ...rotation.filter((id) => nightPool.some((e) => e.id === id)),
+      ...nightPool.filter((e) => !rotation.includes(e.id)).map((e) => e.id),
+    ],
+    [rotation, nightPool]
+  );
+  const moveRot = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= orderedIds.length) return;
+    const arr = [...orderedIds];
+    const [x] = arr.splice(i, 1);
+    arr.splice(j, 0, x);
+    setDirty(true);
+    setMsg("");
+    setRotation(arr);
+  };
+
   useEffect(() => {
+    fetch("/api/employees")
+      .then((r) => r.json())
+      .then((d) =>
+        setNightPool(
+          (d.employees || []).filter(
+            (e) => !e.deactivated_at && (e.allowed_shifts || []).includes("Β")
+          )
+        )
+      );
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
@@ -197,6 +228,11 @@ export default function SettingsPage() {
         setWorkDays(d.settings?.work_days || 6);
         setMaxPerShift(d.settings?.max_per_shift || 4);
         setLeaveReplacesRest(d.settings?.leave_replaces_rest !== false);
+        setRotation(
+          Array.isArray(d.settings?.night_rotation_order)
+            ? d.settings.night_rotation_order
+            : []
+        );
         const sh = d.settings?.shifts;
         setShiftDefs(sh && Object.keys(sh).length ? sh : { ...DEFAULT_SHIFTS });
       });
@@ -222,6 +258,7 @@ export default function SettingsPage() {
         work_days: workDays,
         max_per_shift: maxPerShift,
         leave_replaces_rest: leaveReplacesRest,
+        night_rotation_order: orderedIds,
         shifts: shiftDefs,
       }),
     });
@@ -375,10 +412,47 @@ export default function SettingsPage() {
         </div>
 
         {/* 3 & 4 — Απαιτήσεις */}
+        <div className="card">
+          <div className="sec-head">
+            <h2>
+              <span className="sec-num">3</span> Σειρά βραδινών
+            </h2>
+          </div>
+          <p className="sub" style={{ marginBottom: 12 }}>
+            Με ποια σειρά αναλαμβάνουν τα νυχτερινά μπλοκ στο αυτόματο rotation
+            του μηνιαίου προγράμματος. Εμφανίζονται μόνο όσοι έχουν τη νυχτερινή
+            (Β) στις βάρδιές τους.
+          </p>
+          {orderedIds.length === 0 ? (
+            <p className="sub" style={{ color: "var(--danger)" }}>
+              Κανένας εργαζόμενος δεν έχει τη νυχτερινή (Β). Πρόσθεσέ την στο
+              «Προσωπικό» σε όσους κάνουν νύχτες.
+            </p>
+          ) : (
+            orderedIds.map((id, i) => {
+              const e = nightPool.find((x) => x.id === id);
+              if (!e) return null;
+              return (
+                <div className="emp-card" key={id}>
+                  <div className="emp-move">
+                    <button className="emp-arrow" onClick={() => moveRot(i, -1)} title="Πάνω">▲</button>
+                    <button className="emp-arrow" onClick={() => moveRot(i, 1)} title="Κάτω">▼</button>
+                  </div>
+                  <div className="emp-main">
+                    <div className="emp-name">
+                      <span className="sec-num">{i + 1}</span> {e.name}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
         <ReqEditor
           title={
             <>
-              <span className="sec-num">3</span> Άτομα ανά βάρδια · Δευτέρα–Σάββατο
+              <span className="sec-num">4</span> Άτομα ανά βάρδια · Δευτέρα–Σάββατο
             </>
           }
           note="Πόσα άτομα χρειάζεται κάθε βάρδια τις καθημερινές. Οι βάρδιες με 2+ άτομα θεωρούνται βασικές και καλύπτονται πάντα πρώτες."
@@ -390,7 +464,7 @@ export default function SettingsPage() {
         <ReqEditor
           title={
             <>
-              <span className="sec-num">4</span> Άτομα ανά βάρδια · Κυριακή
+              <span className="sec-num">5</span> Άτομα ανά βάρδια · Κυριακή
             </>
           }
           note="Η Κυριακή έχει δικό της μοτίβο — συνήθως λιγότερο προσωπικό και διαφορετικά ωράρια."

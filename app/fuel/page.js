@@ -73,6 +73,7 @@ export default function FuelPage() {
   const [sheetRows, setSheetRows] = useState(null);
   const [mapping, setMapping] = useState({});
   const [importMsg, setImportMsg] = useState("");
+  const [rejected, setRejected] = useState([]);
   const [importing, setImporting] = useState(false);
   const [showMapping, setShowMapping] = useState(false);
 
@@ -321,7 +322,8 @@ export default function FuelPage() {
         const n = toNum(row[col]);
         if (n != null) liters[f.key] = n;
       }
-      if (Object.keys(liters).length) out.push({ entry_date: d, liters });
+      if (Object.keys(liters).length)
+        out.push({ entry_date: d, liters, __row: i + 1 });
     }
     if (!out.length) {
       setImporting(false);
@@ -337,9 +339,11 @@ export default function FuelPage() {
     });
     const d = await res.json();
     setImporting(false);
+    setRejected(Array.isArray(d.rejected) ? d.rejected : []);
     if (res.ok) {
+      const rej = Array.isArray(d.rejected) ? d.rejected.length : 0;
       setImportMsg(
-        `Εισήχθησαν ${d.imported} μέρες από το φύλλο «${sheetName}» ✓`
+        `${d.imported} ημέρες εισήχθησαν${rej ? ` · ${rej} απορρίφθηκαν` : ""} ✓`
       );
       load();
     } else setImportMsg("Σφάλμα: " + (d.error || res.status));
@@ -733,6 +737,31 @@ export default function FuelPage() {
                 <p className={importMsg.includes("✓") ? "msg-ok" : "msg-err"} style={{ marginTop: 8 }}>
                   {importMsg}
                 </p>
+              )}
+              {rejected.length > 0 && (
+                <div className="warn" style={{ marginTop: 8 }}>
+                  <strong>
+                    <IconWarn width={14} height={14} /> Γραμμές που απορρίφθηκαν
+                  </strong>
+                  <ul>
+                    {rejected.slice(0, 12).map((r, i) => (
+                      <li key={i}>
+                        {r.date
+                          ? r.date
+                          : r.row != null
+                          ? `Γραμμή ${r.row}`
+                          : "Άγνωστη γραμμή"}
+                        : {r.reason}
+                      </li>
+                    ))}
+                    {rejected.length > 12 && (
+                      <li>…και {rejected.length - 12} ακόμη</li>
+                    )}
+                  </ul>
+                  <div style={{ fontSize: 12.5, marginTop: 6 }}>
+                    Οι υπόλοιπες γραμμές εισήχθησαν κανονικά.
+                  </div>
+                </div>
               )}
             </div>
 

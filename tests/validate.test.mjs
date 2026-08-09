@@ -140,3 +140,98 @@ test("V10. Ανενεργός εργαζόμενος δεν ελέγχεται �
   // το grid του παραμένει ανέπαφο για την ιστορική εμφάνιση
   assert.equal(r.cells["b:0"], undefined);
 });
+
+test("V11. Ακριβώς ένας Β ανά ημέρα — δύο Β δίνουν error", () => {
+  const a = mk("a", "Α", { allowed_shifts: ["Β"] });
+  const b = mk("b", "Β-ΑΤΟΜΟ", { allowed_shifts: ["Β"] });
+  const r = validateGrid({
+    grid: {
+      a: ["Β", "Β", "Β", "Β", "Β", "Β", "Ρ"],
+      b: ["Ρ", "Ρ", "Β", "Ρ", "Ρ", "Ρ", "Β"], // δεύτερος Β την Τετάρτη
+    },
+    employees: [a, b],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+  });
+  const g = r.groups.find((x) => x.key === "nightCount");
+  assert.ok(g, "δεν εντοπίστηκε το πρόβλημα");
+  assert.ok(g.items.some((i) => i.includes("Επιτρέπεται μόνο ένας")));
+  assert.ok(r.cells["a:2"]?.some((i) => i.level === "error"));
+  assert.ok(r.cells["b:2"]?.some((i) => i.level === "error"));
+});
+
+test("V12. Καμία νυχτερινή σε μέρα → error", () => {
+  const a = mk("a", "Α", { allowed_shifts: ["Β", "Π"] });
+  const r = validateGrid({
+    grid: { a: ["Π", "Β", "Β", "Β", "Β", "Β", "Β"] }, // λείπει Β Δευτέρας
+    employees: [a],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+  });
+  assert.ok(
+    r.groups.find((x) => x.key === "nightCount")?.items.some((i) =>
+      i.includes("καμία νυχτερινή")
+    )
+  );
+});
+
+test("V13. Soft delete: legacy active=false με deactivated_at=null ελέγχεται κανονικά", () => {
+  const legacy = mk("l", "LEGACY", { active: false });
+  const r = validateGrid({
+    grid: { l: ["ΧΧ", "Π", "Π", "Π", "Π", "Π", "Ρ"] },
+    employees: [legacy],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+  });
+  assert.ok(
+    r.groups.some((g) => g.key === "unknown"),
+    "ο legacy θεωρείται ενεργός και ελέγχεται"
+  );
+});
+
+test("V14. Manual αλλαγή Ρ Σαββάτου → Α σε normal next holder δίνει conflict", () => {
+  const n = mk("nx", "ΕΠΟΜΕΝΟΣ", { allowed_shifts: ["Β", "Α", "Π"] });
+  const r = validateGrid({
+    // Ο χρήστης μετακίνησε το Ρ από το Σάββατο στην Τετάρτη.
+    grid: { nx: ["Π", "Π", "Ρ", "Π", "Π", "Α", "Β"] },
+    employees: [n],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+    nextNight: "nx",
+    prevNightPerson: "other", // ΔΕΝ είναι repeat
+  });
+  assert.ok(
+    r.groups
+      .find((g) => g.key === "night")
+      ?.items.some((i) => i.includes("Ρ το Σάββατο")),
+    "λείπει το conflict: " + JSON.stringify(r.groups)
+  );
+  assert.ok(r.cells["nx:5"]?.some((i) => i.level === "night"));
+});
+
+test("V15. Άλλο Ρ μέσα στην εβδομάδα ΔΕΝ ακυρώνει την απαίτηση Σαββάτου", () => {
+  const n = mk("nx", "ΕΠΟΜΕΝΟΣ", { allowed_shifts: ["Β", "Α", "Π"] });
+  const r = validateGrid({
+    grid: { nx: ["Ρ", "Π", "Π", "Π", "Π", "Α", "Β"] }, // Ρ Δευτέρας, Α Σαββάτου
+    employees: [n],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+    nextNight: "nx",
+    prevNightPerson: "other",
+  });
+  assert.ok(
+    r.groups.find((g) => g.key === "night")?.items.some((i) => i.includes("Ρ το Σάββατο"))
+  );
+});
+
+test("V16. Repeat exception: εργασία Σαββάτου ΔΕΝ δίνει conflict", () => {
+  const n = mk("nx", "ΕΠΑΝΕΡΧΟΜΕΝΟΣ", { allowed_shifts: ["Β", "Α", "Π"] });
+  const r = validateGrid({
+    grid: { nx: ["Ρ", "Π", "Π", "Π", "Π", "Α", "Β"] },
+    employees: [n],
+    dayReq: Array.from({ length: 7 }, () => ({})),
+    nextNight: "nx",
+    prevNightPerson: "nx", // REPEAT: ίδιος με τον previous
+  });
+  assert.ok(
+    !r.groups
+      .find((g) => g.key === "night")
+      ?.items.some((i) => i.includes("Ρ το Σάββατο")),
+    "δεν πρέπει να υπάρχει conflict στο repeat: " + JSON.stringify(r.groups)
+  );
+});

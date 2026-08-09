@@ -136,3 +136,31 @@ test("F11. Οι εξαιρεμένες ημέρες αγνοούνται στο�
   assert.equal(outliers({ unl95: 40000 }, hist).length, 1, "δεν εντοπίστηκε ακραία τιμή");
   assert.equal(outliers({ unl95: 5100 }, hist).length, 0);
 });
+
+test("F12. Η σημερινή καταχώριση ΔΕΝ χρησιμοποιείται για την πρόβλεψη της ίδιας μέρας", () => {
+  const target = new Date("2026-08-10T00:00:00"); // Δευτέρα
+  const entries = [
+    day("2026-07-20", { unl95: 1000 }),
+    day("2026-07-27", { unl95: 1000 }),
+    day("2026-08-03", { unl95: 1000 }),
+    day("2026-08-10", { unl95: 9999 }), // ΣΗΜΕΡΑ — ακραία τιμή
+  ];
+  const f = forecast(entries, [target]);
+  assert.equal(f.unl95[0].n, 3, "χρησιμοποιήθηκαν λάθος πλήθος ημερών");
+  assert.equal(
+    f.unl95[0].value,
+    1000,
+    `η σημερινή τιμή μόλυνε τον μέσο όρο: ${f.unl95[0].value}`
+  );
+});
+
+test("F13. Μελλοντικές ημέρες δεν χρησιμοποιούνται ως ιστορικό", () => {
+  const target = new Date("2026-08-10T00:00:00");
+  const entries = [
+    day("2026-08-03", { unl95: 1000 }),
+    day("2026-08-17", { unl95: 5000 }), // μελλοντική
+  ];
+  const f = forecast(entries, [target]);
+  assert.equal(f.unl95[0].n, 1);
+  assert.equal(f.unl95[0].value, 1000);
+});

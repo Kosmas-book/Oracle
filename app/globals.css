@@ -173,6 +173,73 @@ select:focus, input:focus {
 label.f { font-size: 12px; letter-spacing: 0.01em; }
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 500; }
 
+/* Εκτύπωση μήνα — όλες οι εβδομάδες, ανεξάρτητα από collapse */
+.month-print { display: none; }
+@media print {
+  .month-print { display: block !important; }
+  .print-week {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 16px;
+  }
+  .pw-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 2px solid var(--petrol);
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .pw-title span { font-size: 11px; color: var(--muted); }
+  .month-print .sched { font-size: 10.5px; }
+  .month-print .cell { height: 20px; font-size: 10.5px; }
+}
+
+/* Εναλλαγή Εβδομάδα / Μήνας */
+.modeswitch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 4px 0 16px;
+  background: #fff;
+}
+.modebtn {
+  border: none;
+  background: none;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.modebtn.on { background: var(--petrol); color: #fff; }
+
+/* Κάρτες εβδομάδων στο Month mode */
+.weekcard { padding: 14px 16px; }
+.wk-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  user-select: none;
+}
+.wk-head strong { font-size: 15px; }
+.wk-night { font-size: 13px; color: var(--muted); font-weight: 600; }
+.wk-toggle { color: var(--muted); font-size: 11px; }
+.pill.ok-pill { background: #e8f3ec; color: var(--ok); }
+.pill.warnb { background: #f7ead0; color: #8a6a1c; }
+.pill.err-pill { background: #f6ded8; color: var(--danger); }
+td.spill, th.spill { opacity: 0.45; }
+@media print {
+  .weekcard { page-break-inside: avoid; break-inside: avoid; margin-bottom: 14px; }
+  .wk-toggle { display: none; }
+}
+
 /* Καρτέλες σελίδας */
 .tabs {
   display: flex;
