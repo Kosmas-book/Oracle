@@ -22,9 +22,13 @@
 2. `migration_2_residual.sql`
 3. `migration_3_integrity.sql`
 4. `migration_4_month.sql`
+5. `migration_5_security.sql`
 
-Και τα δύο είναι μη καταστροφικά και ασφαλή να ξανατρέξουν.
-Rollback (αντίστροφη σειρά): `rollback_4_month.sql`, `rollback_3_integrity.sql`,
+Τα migrations είναι μη καταστροφικά και ασφαλή να ξανατρέξουν.
+Το migration 5 μετατρέπει αυτόματα κάθε παλιό PIN σε ασφαλές hash στην επόμενη
+επιτυχημένη είσοδο. Ο χρήστης θα χρειαστεί απλώς να συνδεθεί ξανά μία φορά.
+
+Rollback (αντίστροφη σειρά): `rollback_5_security.sql`, `rollback_4_month.sql`, `rollback_3_integrity.sql`,
 `rollback_2_residual.sql`, `rollback_1_hardening.sql`.
 
 ## Vercel
@@ -33,8 +37,14 @@ Environment Variables:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SIGNUP_CODE` (προαιρετικό — κωδικός πρόσκλησης για νέα καταστήματα)
+- `SESSION_SECRET` (συνιστάται — τυχαίο μυστικό 32+ χαρακτήρων για τα sessions·
+  χωρίς αυτό χρησιμοποιείται προσωρινά το service-role key)
+- `SIGNUP_CODE` (**απαραίτητο** αν θέλεις να επιτρέπεται δημιουργία νέων
+  καταστημάτων· χωρίς αυτό το signup παραμένει κλειστό)
 - `RESEND_API_KEY` και `MAIL_FROM` (προαιρετικά — για ανάκτηση PIN με email)
+
+Τα νέα PIN πρέπει να έχουν 6–12 ψηφία. Τα υπάρχοντα 4ψήφια PIN συνεχίζουν να
+λειτουργούν και αναβαθμίζονται σε hash στην πρώτη είσοδο.
 
 ## Tests & Simulations
 

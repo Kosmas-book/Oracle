@@ -102,7 +102,7 @@ export default function Login() {
           <input
             type="password"
             inputMode="numeric"
-            placeholder="PIN (4+ ψηφία)"
+            placeholder="PIN (6–12 ψηφία)"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
           />
@@ -141,7 +141,7 @@ export default function Login() {
         disabled={
           busy ||
           (mode === "login" && (!name || !pin)) ||
-          (mode === "signup" && (!name || !pin || !email)) ||
+          (mode === "signup" && (!name || !/^\d{6,12}$/.test(pin) || !email || !invite)) ||
           (mode === "forgot" && !email)
         }
       >

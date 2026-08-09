@@ -3,17 +3,22 @@
 -- Στήνει ολόκληρη τη βάση από το μηδέν. Ασφαλές να ξανατρέξει.
 -- ============================================================
 
--- 1. Καταστήματα (κάθε πρατήριο = μία γραμμή, PIN = κλειδί εισόδου)
+-- 1. Καταστήματα (PIN σε scrypt hash, υπογεγραμμένα sessions)
 create table if not exists stations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  pin text not null unique,
+  pin text unique,                                     -- μόνο legacy· καθαρίζεται στο πρώτο login
+  pin_hash text,
+  session_version integer not null default 1,
   email text,
   reset_token text,
+  reset_token_hash text,
   reset_expires timestamptz,
   created_at timestamptz not null default now()
 );
 create index if not exists stations_reset_token_idx on stations (reset_token);
+create index if not exists stations_reset_token_hash_idx
+  on stations (reset_token_hash) where reset_token_hash is not null;
 
 -- 2. Προσωπικό
 create table if not exists employees (
@@ -96,6 +101,15 @@ create table if not exists fuel_presets (
 );
 create index if not exists fuel_presets_station_idx on fuel_presets (station_id);
 
+-- 7. Περιορισμός αποτυχημένων login/signup/reset προσπαθειών.
+create table if not exists auth_rate_limits (
+  key text primary key,
+  attempts integer not null default 0,
+  window_started timestamptz not null default now(),
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+
 -- 6. RLS ενεργό ΧΩΡΙΣ policies: πρόσβαση μόνο μέσω service role (API routes).
 alter table stations enable row level security;
 alter table employees enable row level security;
@@ -104,9 +118,11 @@ alter table schedules enable row level security;
 alter table fuel_entries enable row level security;
 alter table weekly_employee_targets enable row level security;
 alter table fuel_presets enable row level security;
+alter table auth_rate_limits enable row level security;
 
 -- ============================================================
--- ΠΡΩΤΟ ΚΑΤΑΣΤΗΜΑ — άλλαξε όνομα, PIN και email πριν τρέξεις:
+-- ΠΡΩΤΟ ΚΑΤΑΣΤΗΜΑ — προαιρετικό legacy bootstrap.
+-- Στην πρώτη είσοδο το PIN μετατρέπεται αυτόματα σε hash και διαγράφεται εδώ.
 -- ============================================================
 -- insert into stations (name, pin, email)
 --   values ('ΚΑΛΥΨΩ 024', '1234', 'to-email-sou@gmail.com')
