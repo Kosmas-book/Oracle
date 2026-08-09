@@ -44,6 +44,7 @@ create table if not exists settings (
   max_per_shift int not null default 4,            -- μέγιστα άτομα ταυτόχρονα
   shifts jsonb not null default '{}',              -- βάρδιες/ωράρια· κενό = προεπιλογές
   leave_replaces_rest boolean not null default true, -- η άδεια Ο μετράει στη θέση του Ρ;
+  night_rotation_order jsonb not null default '[]',  -- σειρά rotation βραδινών
   updated_at timestamptz not null default now()
 );
 
