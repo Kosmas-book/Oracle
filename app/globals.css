@@ -194,7 +194,9 @@ label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; colo
   }
   .pw-title span { font-size: 11px; color: var(--muted); }
   .month-print .sched { font-size: 10.5px; }
-  .month-print .cell { height: 20px; font-size: 10.5px; }
+  .month-print .cell { height: 26px; font-size: 11px; }
+  .month-print table.sched th { padding: 8px 5px; }
+  .month-print table.sched td.name { padding: 6px 10px; }
 }
 
 /* Εναλλαγή Εβδομάδα / Μήνας */
@@ -1020,32 +1022,48 @@ body:has(.login-box) {
     color: var(--muted);
   }
 
-  /* Πίνακας */
-  table.sched { font-size: 11px; border: 1.5px solid var(--petrol); }
+  /* Πίνακας — πιο αραιός, χωρίς σημάνσεις οθόνης */
+  table.sched {
+    font-size: 11px;
+    border: 1.5px solid var(--petrol);
+    border-spacing: 0;
+  }
   table.sched th {
     background: var(--petrol) !important;
     color: #fff !important;
     font-size: 11px;
-    padding: 7px 4px;
+    padding: 9px 6px;
     border-color: rgba(255,255,255,0.25);
   }
   table.sched th .d { color: #cfdde4 !important; font-size: 10px; }
-  table.sched td { border-color: #c9c4b6; }
+  table.sched td { border-color: #c9c4b6; padding: 0 3px; }
   table.sched td.name {
     font-size: 11.5px;
-    padding: 5px 9px;
+    padding: 7px 11px;
     border-right: 1.5px solid var(--petrol);
   }
   table.sched tbody tr:nth-child(even) td.name { background: #faf9f5; }
-  .cell { height: 24px; cursor: default; font-size: 11.5px; }
+  .cell { height: 30px; cursor: default; font-size: 12px; letter-spacing: 0.02em; }
+
+  /* Οι επισημάνσεις validation είναι ΜΟΝΟ για την οθόνη — ποτέ στο χαρτί. */
+  td.cell-error,
+  td.cell-forbidden,
+  td.cell-fixed,
+  td.cell-night,
+  td.cell-info {
+    box-shadow: none !important;
+    outline: none !important;
+  }
+  .cell:hover { outline: none !important; }
+  .cmark { display: none !important; }
 
   /* Υπόμνημα & υπογραφή */
-  .print-foot { margin-top: 12px; }
+  .print-foot { margin-top: 16px; }
   .pf-legend {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 14px;
-    padding: 8px 10px;
+    gap: 8px 18px;
+    padding: 10px 12px;
     border: 1px solid #c9c4b6;
     border-radius: 6px;
     background: #faf9f5 !important;

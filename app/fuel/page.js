@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Nav from "@/lib/Nav";
 import { isoDate, addDays, fmtShort, DAY_NAMES } from "@/lib/shifts";
 import { IconEmpty, IconUpload, IconSave, IconPlus, IconWarn } from "@/lib/Icons";
-import { excelToISO, parseCsv } from "@/lib/importParsing";
+import * as XLSX from "xlsx";
 import {
   FUEL_KEYS,
   FUEL_LABELS,
@@ -21,6 +21,24 @@ const TABS = [
   { id: "import", label: "Εισαγωγή αρχείου" },
   { id: "history", label: "Ιστορικό" },
 ];
+
+function excelToISO(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && v > 20000 && v < 60000) {
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if (m) {
+    let y = m[3];
+    if (y.length === 2) y = "20" + y;
+    return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return null;
+}
 
 function toNum(v) {
   if (v == null || v === "") return null;
@@ -246,19 +264,9 @@ export default function FuelPage() {
     return g;
   }
 
-  async function loadSheet(book, name, hrow) {
-    let rows;
-    try {
-      if (book.csvRows) rows = book.csvRows;
-      else {
-        const { default: readXlsxFile } = await import("read-excel-file/browser");
-        rows = await readXlsxFile(book.file, { sheet: name });
-      }
-    } catch (error) {
-      setSheetRows(null);
-      setImportMsg("Δεν διαβάστηκε το φύλλο: " + error.message);
-      return;
-    }
+  function loadSheet(book, name, hrow) {
+    const ws = book.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
     if (!rows.length) {
       setSheetRows(null);
       setImportMsg("Το φύλλο είναι άδειο.");
@@ -274,38 +282,28 @@ export default function FuelPage() {
     setImportMsg("");
   }
 
-  async function onFile(ev) {
+  function onFile(ev) {
     const file = ev.target.files?.[0];
     if (!file) return;
     setImportMsg("");
-    ev.target.value = "";
-    if (file.size > 10 * 1024 * 1024) {
-      setImportMsg("Το αρχείο είναι μεγαλύτερο από 10 MB.");
-      return;
-    }
-    try {
-      const extension = file.name.toLowerCase().split(".").pop();
-      let book;
-      if (extension === "csv") {
-        book = { file, SheetNames: ["CSV"], csvRows: parseCsv(await file.text()) };
-      } else if (extension === "xlsx") {
-        const { readSheetNames } = await import("read-excel-file/browser");
-        book = { file, SheetNames: await readSheetNames(file) };
-      } else {
-        throw new Error("Επίλεξε αρχείο .xlsx ή .csv.");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const book = XLSX.read(e.target.result, { type: "array", cellDates: false });
+        setWb(book);
+        // Προεπιλογή: το φύλλο του τρέχοντος μήνα αν υπάρχει, αλλιώς το πρώτο.
+        const months = ["ιανουάριος","φεβρουάριος","μάρτιος","απρίλιος","μάιος","ιούνιος","ιούλιος","αύγουστος","σεπτέμβριος","οκτώβριος","νοέμβριος","δεκέμβριος"];
+        const cur = months[new Date().getMonth()];
+        const pick =
+          book.SheetNames.find((n) => n.toLowerCase() === cur) || book.SheetNames[0];
+        setSheetName(pick);
+        loadSheet(book, pick, null);
+      } catch (err) {
+        setImportMsg("Δεν διαβάστηκε το αρχείο: " + err.message);
       }
-      if (!book.SheetNames.length) throw new Error("Δεν βρέθηκε φύλλο στο αρχείο.");
-      setWb(book);
-      const months = ["ιανουάριος","φεβρουάριος","μάρτιος","απρίλιος","μάιος","ιούνιος","ιούλιος","αύγουστος","σεπτέμβριος","οκτώβριος","νοέμβριος","δεκέμβριος"];
-      const cur = months[new Date().getMonth()];
-      const pick = book.SheetNames.find((n) => n.toLowerCase() === cur) || book.SheetNames[0];
-      setSheetName(pick);
-      await loadSheet(book, pick, null);
-    } catch (err) {
-      setWb(null);
-      setSheetRows(null);
-      setImportMsg("Δεν διαβάστηκε το αρχείο: " + err.message);
-    }
+    };
+    reader.readAsArrayBuffer(file);
+    ev.target.value = "";
   }
 
   async function doImport() {
@@ -612,11 +610,11 @@ export default function FuelPage() {
             <div className="card">
               <h2>Εισαγωγή από Excel</h2>
               <p className="sub" style={{ marginBottom: 10 }}>
-                Δέχεται .xlsx/.csv έως 10 MB με μία γραμμή ανά μέρα. Αν το αρχείο έχει
+                Δέχεται .xls/.xlsx/.csv με μία γραμμή ανά μέρα. Αν το αρχείο έχει
                 ένα φύλλο ανά μήνα, διάλεξε ποιον μήνα θες. Γραμμές χωρίς
                 ημερομηνία και κενές μέρες αγνοούνται.
               </p>
-              <input type="file" accept=".xlsx,.csv" onChange={onFile} />
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} />
 
               {wb && (
                 <div className="toolbar" style={{ marginTop: 12, alignItems: "flex-end" }}>
